@@ -1,15 +1,16 @@
-# Collect tacOutput
-If your ACI fabric is running 5.2+, 
+# Collect TacOutput
+For ACI fabrics on versions 5.2+, the
 [trigger tacoutput](https://www.cisco.com/c/en/us/support/docs/cloud-systems-management/application-policy-infrastructure-controller-apic/214520-guide-to-collect-tech-support-and-tac-re.html#anc13) 
-should be used on an APIC to collect the extended faults, events and audit+ logs
+command should be used on an APIC to collect the extended faults, events, audits and other large record keeping objects.
 
-For ACI fabrics on pre-5.2, this `collect tacOutput` script can be used to collect extended fault, events and audit+ logs.
+For ACI fabrics on pre-5.2 versions, this `collect TacOutput` script can be used to collect extended faults, events, audits and 
+other large record keeping objects.
 
 # Usage
 
 ## Quickstart
 
-1. Copy the script onto a customer APIC `/tmp`
+1. Copy the script onto `/tmp` of a APIC
 2. Change permissions of the script: 
 ```
 apic# chmod 755 /tmp/collectTacOutput.sh
@@ -18,7 +19,7 @@ apic# chmod 755 /tmp/collectTacOutput.sh
 ```
 apic# /tmp/collectTacOutput.sh -b 2022-02-16T08:30:00 -e 2022-03-16T09:30:28 -o 1,2,3,4,5
 ```
-NOTE: `-o 1,2,3,4,5`  will leave out epRecord, healthRecord and healtInst. Check Full Run Example for all options
+NOTE: `-o 1,2,3,4,5`  will leave out epRecord, healthRecord and healtInst objects. Check Full Run Example for all object options.
 
 ## Full Run Example
 
@@ -38,7 +39,7 @@ Enter selections: <b>1,2,3,4,5,6,7,8</b>
 Enter record start date (format: 2019-12-15T00:00:00) *default is one month prior to current date: <b>2019-12-25T00:00:00</b>
 Enter record end date (format: 2019-12-15T00:00:00) *default is current date: <b>2020-01-05T00:00:00</b>
 
-<i>...script collection runs...</i>
+<i>...script collection run output...</i>
 
 Compression completed
 Logs available for SCP or SFTP download from <b>/data/techsupport/TacOutput-2019-12-25T00:00:00-to-2020-01-05T00:00:00.tgz</b>
