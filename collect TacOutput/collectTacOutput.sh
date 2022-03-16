@@ -78,8 +78,8 @@ EOF
 	echo "d:	destination directory for output file."
 	echo "z:	disable collection of implicit mo's (topSystem, fabricNode, firmwareARunning)"
 	echo "q:	run script in quiet mode."	
-	echo "To supply all or some arguments to Script: collectOutputs -b 2019-12-15T00:00:00 -e 2019-12-15T00:00:00 -o 1,2,3,4"
-	echo "To run script and follow prompts: collectOutputs"
+	echo "To supply all or some arguments to Script: collectTacOutput -b 2019-12-15T00:00:00 -e 2019-12-15T00:00:00 -o 1,2,3,4"
+	echo "To run script and follow prompts: collectTacOutput"
     exit 0
 }
 

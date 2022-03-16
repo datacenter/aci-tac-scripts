@@ -12,18 +12,18 @@ For ACI fabrics on pre-5.2, this `collect tacOutput` script can be used to colle
 1. Copy the script onto a customer APIC `/tmp`
 2. Change permissions of the script: 
 ```
-apic# chmod 755 /tmp/collectTacOutputs.sh
+apic# chmod 755 /tmp/collectTacOutput.sh
 ```
 3. Run the script with desired timerange:
 ```
-apic# /tmp/collectTacOutputs.sh -b 2022-02-16T08:30:00 -e 2022-03-16T09:30:28 -o 1,2,3,4,5
+apic# /tmp/collectTacOutput.sh -b 2022-02-16T08:30:00 -e 2022-03-16T09:30:28 -o 1,2,3,4,5
 ```
 NOTE: `-o 1,2,3,4,5`  will leave out epRecord, healthRecord and healtInst. Check Full Run Example for all options
 
 ## Full Run Example
 
 <pre>
-apic# <b>/tmp/collectTacOutputs.sh</b>
+apic# <b>/tmp/collectTacOutput.sh</b>
 Select corresponding numbers of objects to collect. Separate numbers with commas. *Note, topSystem, fabricNode, and firmwareARunning are automatically included.
 Ex: 1,2,3,4,5
 1. faultInfo *collected unfiltered
@@ -52,9 +52,9 @@ rm -f /data/techsupport/TacOutput-2019-12-25T00:00:00-to-2020-01-05T00:00:00.tgz
 ## Help documentation
 
 ```
-apic# /tmp/collectTacOutputs.sh --help
+apic# /tmp/collectTacOutput.sh --help
 
-Help documentation for /tmp/collectTacOutputs.sh
+Help documentation for /tmp/collectTacOutput.sh
 
 Script will prompt for input or user can supply arguments with below options.
 
@@ -77,5 +77,5 @@ o:      Select corresponding number for each object to collect from the followin
 d:      destination directory for output file.
 z:      disable collection of implicit mo's (topSystem, fabricNode, firmwareARunning)
 q:      run script in quiet mode.
-To supply all or some arguments to Script: collectOutputs -b 2019-12-15T00:00:00 -e 2019-12-15T00:00:00 -o 1,2,3,4
-To run script and follow prompts: collectOutputs
+To supply all or some arguments to Script: collectTacOutput -b 2019-12-15T00:00:00 -e 2019-12-15T00:00:00 -o 1,2,3,4
+To run script and follow prompts: collectTacOutput
