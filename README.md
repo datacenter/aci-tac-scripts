@@ -2,7 +2,7 @@
 
 A collection of TAC scripts curated for general use.
 
-## Collect TacOutput
+## [Collect TacOutput](https://github.com/datacenter/aci-tac-scripts/tree/main/collect%20TacOutput)
 
 For ACI fabrics running pre-5.2, the `collect tacOutput` can be used to collect extended fault, events and audits for RCA.
 
