@@ -38,7 +38,8 @@ function getTacRecord() {
 							icurl 'http://localhost:7777/api/class/'"$record"'.xml?query-target-filter=and(gt('"$record"'.'"$sortAtt"',"'"$SDATE"'"),lt('"$record"'.'"$sortAtt"',"'"$EDATE"'"))&order-by='"$record"'.'"$sortAtt"'|desc&page-size=100000&page='"$pageCount" > "$record"-"$pageCount".xml 2> "$record"-"$pageCount".out
 								
 								if egrep -ql "Unable to deliver the message, Resolve timeout" "$record"-"$pageCount".xml; then
-									log "Query for $record page $pageCount timed out. Try reducing time range."
+									log "Query for $record page $pageCount timed out. Try reducing time range. Skipping remaining pages for $record"
+									break
 								else
 									log "Collection of page $pageCount of $record completed."
 								fi
