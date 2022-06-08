@@ -13,3 +13,7 @@ If your ACI Fabric is running 5.2+, instead use the [trigger tacoutput](https://
 For APICs, this script can be run to scan the latest access.log file and produce a summary output.
 
 This script should be used while troubleshooting issues related to a slow APIC UI experience.
+
+## [Easy Spine Elam](https://github.com/datacenter/aci-tac-scripts/tree/main/Easy%20Spine%20Elam)
+
+This cli-based tool automates running elams on modular spines so that the user doesn't have to know the architecture of the platform, whic lc's/fm's the traffic is hitting, etc. It also convers the report to the ereport format for easy readability.
