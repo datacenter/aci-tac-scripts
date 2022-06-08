@@ -666,7 +666,7 @@ if [[ $action == "start" ]]; then
         sed -e 's/^.*config terminal.*$//g' -i /tmp/elam_output-mod$mod
         if grep -q "Syntax error" /tmp/elam_output-mod$mod; then 
             log "Following syntax errors were found:"
-            grep "Syntax error" /tmp/elam_output-mod2 | awk -F "'" '{print $2}' | sort -u
+            grep "Syntax error" /tmp/elam_output-mod$mod | awk -F "'" '{print $2}' | sort -u
             log "Please correct syntax errors and rerun the script. Note the required format when inputting conditions. Exiting..."
             exit 1
         fi
