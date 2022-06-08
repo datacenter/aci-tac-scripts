@@ -16,4 +16,4 @@ This script should be used while troubleshooting issues related to a slow APIC U
 
 ## [Easy Spine Elam](https://github.com/datacenter/aci-tac-scripts/tree/main/Easy%20Spine%20Elam)
 
-This cli-based tool automates running elams on modular spines so that the user doesn't have to know the architecture of the platform, whic lc's/fm's the traffic is hitting, etc. It also convers the report to the ereport format for easy readability.
+This cli-based tool automates running elams on modular spines so that the user doesn't have to know the architecture of the platform, which lc's/fm's the traffic is hitting, etc. It also converts the report to the ereport format for easy readability.
