@@ -32,8 +32,7 @@ This tool is intended to automate running elams on modular gen 2 or later aci sp
 # Limitations
 - The script is supported only on gen 2 and later modular spines. Trying to run it on other chassis will cause the script to fail to run.
 - In-selects 6, 7, and 14 are supported as well as most important trigger conditions within those in-selects (note that inner ipv6 is ineffective with in-select 14).
-- The script does not do elam parsing, it only collects the elam.
-- The script leverages report and report detail. It does not use ereport because a.) ereport is not supported on FM's because of lack of python and b.) to provider backward compatibiliy to pre-4.2 versions.
+- Parsing is done through the ereport functionality if the switch is on 14.2.3j or later.
 - If direction is not specified, ingress is picked (captures LC traffic arriving from a front-panel port).
 - If specifying an ingress interface, specify the module that contains it using the -m option.
 - If not specified, in-select 14 and out-select 1 are used.
@@ -156,6 +155,9 @@ The following decoded elams are available -
 2022-06-08T14:57:49 CLI's sent to hardware are saved in /tmp/elam_output-mod<id>
 2022-06-08T14:57:49 FINISHED!
 ```
+
+# Viewing the Generated Report
+The parsed ereport files (if applicable) can be viewed by cat-ing the files mentioned when the script completes. For more information about understanding the contents of the ereport, take a look at CiscoLive session BRKDCN-3900a and BRKDCN-3900b
 
 # Additional Information
 - On modular spine ALL traffic goes to the FM's. Even if the ingress and egress ports are on the same module, asic, and slice.
