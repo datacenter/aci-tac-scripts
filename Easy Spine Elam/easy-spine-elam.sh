@@ -31,11 +31,15 @@ function convert_to_ereport () {
         f="$line"
         decodeFile="$f"'-EREPORT'
         cp "$f" /bootflash/elam_report.txt
+        chmod 777 /bootflash/elam_report.txt
         decode_elam_parser /bootflash/elam_report.txt
+        rm -f /tmp/elam_decode_report.txt
+        chmod 777 /bootflash/pretty_elam_report.txt
         cat /bootflash/pretty_elam_report.txt > "$decodeFile"
         cat /bootflash/elam_report.txt >> "$decodeFile"
+        chmod 777 "$decodeFile"
         decodeResults+=" $decodeFile"
-    done < /tmp/fileList
+    done < /bootflash/fileList
     
     echo "The following decoded elams are available - "
     for e in $decodeResults; do echo "$e"; done
@@ -45,7 +49,7 @@ function convert_to_ereport () {
 function ssh_util() {
     mod=$1
     pswd="root"
-    socket_file=/tmp/ssh-root@mod$mod:22
+    socket_file=/bootflash/ssh-root@mod$mod:22
         
         if ! [ -S "$socket_file" ]; then
             options="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o controlMaster=yes -o controlPath=$socket_file -o controlPersist=yes -q"
@@ -133,7 +137,7 @@ function get_elam_conditions() {
     insel_dict['inner l4 dest port              > Format : 0-65535']='7 14'
     insel_dict['inner l4 flags                  > Format : 0x0-0xff']='7'
 
-    #Iterate through the above dictionaries and based on insel arg save the matching conditions to /tmp/elam_conditions
+    #Iterate through the above dictionaries and based on insel arg save the matching conditions to /bootflash/elam_conditions
     c1=10; c2=20; c3=30; c4=40; c5=50; c6=60; c7=70; c8=80; c9=90
     for key in "${!condition_dict[@]}"; do
         for k in "${!insel_dict[@]}"; do
@@ -144,39 +148,39 @@ function get_elam_conditions() {
                     if [[ $i == $insel ]]; then
                 
                         if [[ $key =~ "outer l2" ]]; then
-                            echo "$c1. $k" >> /tmp/elam_conditions
+                            echo "$c1. $k" >> /bootflash/elam_conditions
                             c1=$((c1+1))
                         fi
                         if [[ $key =~ "outer arp" ]]; then
-                            echo "$c2. $k" >> /tmp/elam_conditions
+                            echo "$c2. $k" >> /bootflash/elam_conditions
                             c2=$((c2+1))
                         fi
                         if [[ $key =~ "outer ip" ]]; then
-                            echo "$c3. $k" >> /tmp/elam_conditions
+                            echo "$c3. $k" >> /bootflash/elam_conditions
                             c3=$((c3+1))
                         fi
                         if [[ $key =~ "outer l4" ]]; then
-                            echo "$c4. $k" >> /tmp/elam_conditions
+                            echo "$c4. $k" >> /bootflash/elam_conditions
                             c4=$((c4+1))
                         fi
                         if [[ $key =~ "inner l2" ]]; then
-                            echo "$c5. $k" >> /tmp/elam_conditions
+                            echo "$c5. $k" >> /bootflash/elam_conditions
                             c5=$((c5+1))
                         fi
                         if [[ $key =~ "inner arp" ]]; then
-                            echo "$c6. $k" >> /tmp/elam_conditions
+                            echo "$c6. $k" >> /bootflash/elam_conditions
                             c6=$((c6+1))
                         fi
                         if [[ $key =~ "inner ipv4" ]]; then
-                            echo "$c7. $k" >> /tmp/elam_conditions
+                            echo "$c7. $k" >> /bootflash/elam_conditions
                             c7=$((c7+1))
                         fi
                         if [[ $key =~ "inner ipv6" ]]; then
-                            echo "$c8. $k" >> /tmp/elam_conditions
+                            echo "$c8. $k" >> /bootflash/elam_conditions
                             c8=$((c8+1))
                         fi
                         if [[ $key =~ "inner l4" ]]; then
-                            echo "$c9. $k" >> /tmp/elam_conditions
+                            echo "$c9. $k" >> /bootflash/elam_conditions
                             c9=$((c9+1))
                         fi
                     fi
@@ -185,7 +189,7 @@ function get_elam_conditions() {
         done
     done
 
-    cat /tmp/elam_conditions | sort
+    cat /bootflash/elam_conditions | sort
     cat << 'EOF'
 
     Select corresponding numbers of conditions to set. Separate numbers with commas.
@@ -196,13 +200,13 @@ EOF
 
     unset condition
     for e in "${CONDITION_LIST[@]}"; do
-        if ! egrep -ql "^\s*$e\." /tmp/elam_conditions; then
+        if ! egrep -ql "^\s*$e\." /bootflash/elam_conditions; then
             echo "Selection $e was not valid"
         else
             if [[ -v condition ]]; then
                 condition+=$'\n'
             fi
-            b=$(egrep "^$e\." /tmp/elam_conditions | sed -re 's/^[[:digit:]]+\.[[:blank:]]+(.*)$/\1/' | xargs)
+            b=$(egrep "^$e\." /bootflash/elam_conditions | sed -re 's/^[[:digit:]]+\.[[:blank:]]+(.*)$/\1/' | xargs)
             c=$(echo "$b" | sed -E 's/[[:space:]]+>.*$//g')
             read -p "Enter $b: "  'condition_value'
             condition+=${condition_dict[$c]}
@@ -215,15 +219,15 @@ EOF
 function get_asic_slice() {
     if [[ -v interface ]]; then
         #this maps to interface, asic, slice, ssid, ovec
-        if egrep -q "^$interface\s" /tmp/mod$mod-mappings; then
-            asics=$(egrep "^$interface\s" /tmp/mod$mod-mappings | awk '{print $2}')
-            slice=$(egrep "^$interface\s" /tmp/mod$mod-mappings | awk '{print $3}')
-            srcid=$(egrep "^$interface\s" /tmp/mod$mod-mappings | awk '{print $4}')
+        if egrep -q "^$interface\s" /bootflash/mod$mod-mappings; then
+            asics=$(egrep "^$interface\s" /bootflash/mod$mod-mappings | awk '{print $2}')
+            slice=$(egrep "^$interface\s" /bootflash/mod$mod-mappings | awk '{print $3}')
+            srcid=$(egrep "^$interface\s" /bootflash/mod$mod-mappings | awk '{print $4}')
             set_slice="slice"
         fi
     else
         #Get all asics on the card
-        asics=$(cat /tmp/mod$mod-mappings | awk '{print $2}' | sort | uniq)
+        asics=$(cat /bootflash/mod$mod-mappings | awk '{print $2}' | sort | uniq)
     fi
 }
 
@@ -250,49 +254,49 @@ function set_direction {
 
 function set_elam() {
     asics=$1; ssh_command=$2; plat=$3; set_slice=$4; slice=$5; condition2=$6; start=$7
-    install -m 777 /dev/null /tmp/elam_output-mod$mod
+    install -m 777 /dev/null /bootflash/elam_output-mod$mod
     for asic_id in $asics; do
         read -r -d '' CMD << EOF 1>/dev/null
-            $ssh_command  | tee -a /tmp/elam_output-mod$mod
+            $ssh_command  | tee -a /bootflash/elam_output-mod$mod
             debug platform internal $plat elam asic $asic_id $set_slice $slice
             trigger reset
             trigger init in-select $insel out-select $outsel
             $condition2
             $start
 EOF
-        log "$CMD" >> /tmp/elam_output-mod$mod
+        log "$CMD" >> /bootflash/elam_output-mod$mod
         bash <<< "$CMD" 1>/dev/null
     done
 }
 
 function check_elam_status {
-    #rm -f /tmp/elam_output-mod$mod
+    #rm -f /bootflash/elam_output-mod$mod
     ssh_util "$mod"
     plat=${asic_dict[$mod]}
     get_asic_slice
     for asic_id in $asics; do
         read -r -d '' CMD << EOF 1>/dev/null
-            $ssh_command  | tee -a /tmp/elam_output-mod$mod
+            $ssh_command  | tee -a /bootflash/elam_output-mod$mod
             debug platform internal $plat elam asic $asic_id $set_slice $slice
             trigger init in-select $insel out-select $outsel
             stat
 EOF
-        log "$CMD" >> /tmp/elam_output-mod$mod
+        log "$CMD" >> /bootflash/elam_output-mod$mod
         bash <<< "$CMD" 1>/dev/null
     done
 
-    if grep -q "Triggered" /tmp/elam_output-mod$mod; then
+    if grep -q "Triggered" /bootflash/elam_output-mod$mod; then
         #if this file exists, then something has triggered.
-        install -m 777 /dev/null /tmp/triggered
+        install -m 777 /dev/null /bootflash/triggered
         echo -e "\n"
         echo "ELAM TRIGGERED on module $mod:"
-        grep "Triggered" /tmp/elam_output-mod$mod | awk '{print "ASIC: " $2 " SLICE: " $4}' | sort -u
+        grep "Triggered" /bootflash/elam_output-mod$mod | awk '{print "ASIC: " $2 " SLICE: " $4}' | sort -u
         if [[ -v interface ]]; then
             echo "INTERFACE: $interface"
         fi
         echo -e "\n"
         
-        for t in $(grep "Triggered" /tmp/elam_output-mod$mod | awk '{print $2}' | sort | uniq); do echo "$mod $t" >> /tmp/trigList; done
+        for t in $(grep "Triggered" /bootflash/elam_output-mod$mod | awk '{print $2}' | sort | uniq); do echo "$mod $t" >> /bootflash/trigList; done
     fi
 }
 
@@ -309,22 +313,22 @@ EOF
     bash <<< "$CMD" 1>/dev/null
 
     elam_report="/data/techsupport/mod$mod-asic$as-elamreport-$TS"
-    if [[ $decode == "yes" ]]; then echo "$elam_report" >> /tmp/fileList; fi
-    scp -q -o ControlPath=/tmp/ssh-root@mod$mod:22 root@mod$mod:/var/sysmgr/tmp_logs/elam_report.txt $elam_report
+    if [[ $decode == "yes" ]]; then echo "$elam_report" >> /bootflash/fileList; fi
+    scp -q -o ControlPath=/bootflash/ssh-root@mod$mod:22 root@mod$mod:/var/sysmgr/tmp_logs/elam_report.txt $elam_report
     log "Module $mod Asic $as report saved to - $elam_report"
 }
 
 function get_hal_outputs() {
-    install -m 777 /dev/null /tmp/hal_output-mod$mod
+    install -m 777 /dev/null /bootflash/hal_output-mod$mod
     ssh_util "$mod"
-    echo "show platform internal hal l2 port gpd" > /tmp/hal_output-mod$mod
+    echo "show platform internal hal l2 port gpd" > /bootflash/hal_output-mod$mod
     bash << EOF 1>/dev/null
-        $ssh_command | tee -a /tmp/hal_output-mod$mod
+        $ssh_command | tee -a /bootflash/hal_output-mod$mod
         show platform internal hal l2 port gpd
 EOF
-    echo "show platform internal hal l2 internal-port pi" >> /tmp/hal_output-mod$mod
+    echo "show platform internal hal l2 internal-port pi" >> /bootflash/hal_output-mod$mod
     bash << EOF 1>/dev/null
-        $ssh_command | tee -a /tmp/hal_output-mod$mod
+        $ssh_command | tee -a /bootflash/hal_output-mod$mod
         show platform internal hal l2 internal-port pi
 EOF
 }
@@ -337,7 +341,7 @@ function get_mod_list() {
 function close_ssh_sockets() {
     log "Closing existing ssh sockets..."
     for mod in $modList; do
-        ssh -O stop -o controlPath=/tmp/ssh-root@mod$mod:22 root@mod$mod 2>/dev/null
+        ssh -O stop -o controlPath=/bootflash/ssh-root@mod$mod:22 root@mod$mod 2>/dev/null
     done
 }
 
@@ -396,13 +400,15 @@ fi
 if check_gen1 || ! check_modular_spine; then log "This is not a gen 2 (EX and later) modular spine. Exiting..."; exit 1; fi
 
 ###Clean up old files from past runs. Important to initialize files in a way that if some other user runs this script, it won't error out due to permissions
-install -m 777 /dev/null /tmp/trigList
-install -m 777 /dev/null /tmp/fileList
-install -m 777 /dev/null /tmp/elam_conditions
-rm -f /tmp/hal_output-mod*
-rm -f /tmp/elam_output-mod*
-rm -f /tmp/mod*-mappings
-rm -f /tmp/triggered
+install -m 777 /dev/null /bootflash/trigList
+install -m 777 /dev/null /bootflash/fileList
+install -m 777 /dev/null /bootflash/elam_conditions
+rm -f /bootflash/hal_output-mod*
+rm -f /bootflash/elam_output-mod*
+rm -f /bootflash/mod*-mappings
+rm -f /bootflash/triggered
+rm -f /bootflash/elam_report.txt
+rm -f /bootflash/pretty_elam_report.txt
 
 #####Take Args from Command
 optspec="m:i:d:ro:n:kh"
@@ -553,7 +559,7 @@ buildVersion=$(echo $version | sed -re 's/^([[:digit:]]+)\.([[:digit:]]+)\(([[:d
 check_if_decode_available
 
 #If script was previously run and killed early, ssh sockets are left open. Check for them and close if needed
-if egrep -q "\/tmp\/ssh\-root\@mod[0-9]+:22.*mux" <<< "$(ps -ef)"; then
+if egrep -q "\/bootflash\/ssh\-root\@mod[0-9]+:22.*mux" <<< "$(ps -ef)"; then
     log "Previous ssh sockets from past script runs exist. Closing them out then continuing..."
     close_ssh_sockets
 fi
@@ -612,28 +618,28 @@ for mod in $modList; do
 done
 wait
 
-##Parse hal into interface to hw interface. Mapping of int asic slice srcid ovec is stored in /tmp/mod$modNumber-mappings. This is neceassary if user using ingress interface filter. Also would be useful if adding the functionality to tell user the egress interface.
+##Parse hal into interface to hw interface. Mapping of int asic slice srcid ovec is stored in /bootflash/mod$modNumber-mappings. This is neceassary if user using ingress interface filter. Also would be useful if adding the functionality to tell user the egress interface.
 for mod in $modList; do
-    install -m 777 /dev/null /tmp/mod$mod-mappings
+    install -m 777 /dev/null /bootflash/mod$mod-mappings
     if [ "$mod" -gt 20 ]; then
         #FC
         #this maps to interface, asic, slice, ssid, ovec
-        grep -A 10000 "show platform internal hal l2 port gpd" /tmp/hal_output-mod$mod | grep -B 10000 "show platform internal hal l2 internal-port pi" | grep "fc" | sed -e 's/^.*fc/fc/g' | awk '{print $1" "$5" "$7" "$9" "$10}' > /tmp/mod$mod-mappings
+        grep -A 10000 "show platform internal hal l2 port gpd" /bootflash/hal_output-mod$mod | grep -B 10000 "show platform internal hal l2 internal-port pi" | grep "fc" | sed -e 's/^.*fc/fc/g' | awk '{print $1" "$5" "$7" "$9" "$10}' > /bootflash/mod$mod-mappings
 
     elif [ "$mod" -lt 20 ]; then
         #LC - front panel
         #this maps to interface, asic, slice, ssid, ovec
-        grep -A 10000 "show platform internal hal l2 port gpd" /tmp/hal_output-mod$mod | grep -B 10000 "show platform internal hal l2 internal-port pi" | grep "Eth" | sed -e 's/^.*Eth//g' | awk '{print $1" "$5" "$7" "$9" "$10}' > /tmp/mod$mod-mappings
+        grep -A 10000 "show platform internal hal l2 port gpd" /bootflash/hal_output-mod$mod | grep -B 10000 "show platform internal hal l2 internal-port pi" | grep "Eth" | sed -e 's/^.*Eth//g' | awk '{print $1" "$5" "$7" "$9" "$10}' > /bootflash/mod$mod-mappings
         
         #LC - internal
         #this maps to interface, asic, slice, ssid, ovec
-        grep -A 10000 "show platform internal hal l2 internal-port pi" /tmp/hal_output-mod$mod | egrep "lc\([0-9]+\)\-fc\([0-9]+\)" | awk '{print $2" "$3" "$5" "$7" "$8}' >> /tmp/mod$mod-mappings
+        grep -A 10000 "show platform internal hal l2 internal-port pi" /bootflash/hal_output-mod$mod | egrep "lc\([0-9]+\)\-fc\([0-9]+\)" | awk '{print $2" "$3" "$5" "$7" "$8}' >> /bootflash/mod$mod-mappings
     fi
 done
 
 #Check if interface specified with -i option is valid.
 for mod in $modList; do
-    if [[ -v interface ]] && ! egrep -q "^$interface\s" /tmp/mod$mod-mappings; then
+    if [[ -v interface ]] && ! egrep -q "^$interface\s" /bootflash/mod$mod-mappings; then
         log "Interface $interface not found in up state or does not exist on module $mod. Exiting..."
         close_ssh_sockets
         exit 1
@@ -663,10 +669,10 @@ if [[ $action == "start" ]]; then
     
     #Check for invalid elam syntax, kill the script if any are found. If all syntax was incorrect then we would be triggering on every asic of every slice so want to avoid this.
     for mod in $modList; do
-        sed -e 's/^.*config terminal.*$//g' -i /tmp/elam_output-mod$mod
-        if grep -q "Syntax error" /tmp/elam_output-mod$mod; then 
+        sed -e 's/^.*config terminal.*$//g' -i /bootflash/elam_output-mod$mod
+        if grep -q "Syntax error" /bootflash/elam_output-mod$mod; then 
             log "Following syntax errors were found:"
-            grep "Syntax error" /tmp/elam_output-mod$mod | awk -F "'" '{print $2}' | sort -u
+            grep "Syntax error" /bootflash/elam_output-mod$mod | awk -F "'" '{print $2}' | sort -u
             log "Please correct syntax errors and rerun the script. Note the required format when inputting conditions. Exiting..."
             exit 1
         fi
@@ -687,20 +693,20 @@ fi
 sleep 1
 
 #Check elam status
-#/tmp/trigList stores a list of all modules and asics that have triggered so report is only pulled from triggered asics.
+#/bootflash/trigList stores a list of all modules and asics that have triggered so report is only pulled from triggered asics.
 check_status=status
 while [[ $check_status == "status" ]]; do
-    install -m 777 /dev/null /tmp/trigList
+    install -m 777 /dev/null /bootflash/trigList
     for mod in $modList; do
         log "Checking elam status for module $mod"
         check_elam_status &
     done
     wait
-    if ! test -f "/tmp/triggered"; then
+    if ! test -f "/bootflash/triggered"; then
         echo -e "\nNO ELAMS HAVE TRIGGERED!\n"
     fi
     echo 'Type "status" to check elam status again. Type "ereport", "report" or "report detail" to collect all reports.'
-    read -p 'If on 14.2 or later, the report will be convereted to ereport format. Hit enter to finish: '  'check_status'
+    read -p 'If on 14.2 or later, the report will be converted to ereport format. Hit enter to finish: '  'check_status'
 done
 
 #Not important but always good to slow things down a bit when subprocessing functions in bash.
@@ -709,14 +715,14 @@ sleep 1
 #If Elam has triggered, get the report.
 if [[ $check_status == "report" ]] || [[ $check_status == "report detail" ]] || [[ $check_status == "ereport" ]]; then
     if [[ $check_status == "report" ]]; then report="report"; else report="report detail"; fi
-    if test -f "/tmp/triggered"; then
+    if test -f "/bootflash/triggered"; then
         TS=$(date '+%Y-%m-%dT%H-%M-%S')
         while IFS='' read -r line || [[ -n "$line" ]]; do
             mod=$(awk '{print $1}' <<< $line)
             as=$(awk '{print $2}' <<< $line)
             log "Collecting report for module $mod asic $as..."
             get_elam_report &
-        done < /tmp/trigList
+        done < /bootflash/trigList
     else
         echo -e "\nNO ELAMS HAVE TRIGGERED!\n"
     fi
@@ -731,6 +737,15 @@ fi
 #Clean up socket files
 log "Cleaning up sockets..."
 close_ssh_sockets
+#Clean up other files
+rm -f /bootflash/trigList
+rm -f /bootflash/fileList
+rm -f /bootflash/elam_conditions
+rm -f /bootflash/hal_output-mod*
+rm -f /bootflash/mod*-mappings
+rm -f /bootflash/triggered
+rm -f /bootflash/elam_report.txt
+rm -f /bootflash/pretty_elam_report.txt
 #This file is used to log commands that are sent to hardware. Useful to verify since vsh_lc can't directly send errors, exit codes, etc to ibash
-log "CLI's sent to hardware are saved in /tmp/elam_output-mod<id>"
+log "CLI's sent to hardware are saved in /bootflash/elam_output-mod<id>"
 log "FINISHED!"
