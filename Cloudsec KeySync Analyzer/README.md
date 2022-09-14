@@ -10,7 +10,7 @@ In monitor mode, syslog alert will be sent if syslog server IP is given, and key
 Both console and file-based logs are supported by default.
 
 
-# Python3 with Required package installed
+# Required python3 and below packages
 
 urllib3
 requests
