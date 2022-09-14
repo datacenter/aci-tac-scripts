@@ -40,7 +40,7 @@ AUS Eastern Standard Time 2022-09-14T20:11:37.586||INFO||(419)||Cross site valid
 AUS Eastern Standard Time 2022-09-14T20:11:37.587||INFO||(438)||fabric-site1       id 1 --> fabric-site2     id 2 , keys synced at sequenceNumber: 1 , assocNum: 0
 AUS Eastern Standard Time 2022-09-14T20:11:37.587||INFO||(438)||fabric-site2       id 2 --> fabric-site1     id 1 , keys synced at sequenceNumber: 8512 , assocNum: 0
 
-python.exe C:/wksp/cloudsec.py -m -n 192.168.10.41 
+python.exe C:/wksp/cloudseckey.py -m -n 192.168.10.41 
 
 Enter ND/MSO password for admin:
 AUS Eastern Standard Time 2022-09-14T20:12:02.816||INFO||(376)||Retrieving Sites Info from ND/MSO
