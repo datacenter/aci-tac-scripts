@@ -4,7 +4,7 @@ Support triage mode and monitor mode, with minimal argument (ND/MSO IP address),
 
 For each site, fetch APIC’s local key’s sequence number and associated channel to match peer site APIC’s remote key policy from same site.
 
-In triage mode, audit log is also analyzed to see if sequenceNumber used to run out of sequence for remote keys for last 8000 rekeys.
+In triage mode, audit log is also analyzed to see if sequenceNumber used to run out of sequence for remote keys for last 1000 audit logs.
 
 In monitor mode, syslog alert will be sent if syslog server IP is given, and key is out of sync.
 Both console and file-based logs are supported by default.
