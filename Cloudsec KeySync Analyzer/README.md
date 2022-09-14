@@ -1,22 +1,29 @@
 # Cloudsec Key Sync Analyzer
 
 Support triage mode and monitor mode, with minimal argument (ND/MSO IP address), where APIC (on-premises) IP for the site (with cloudsec enabled) is retrieved.
+
 For each site, fetch APIC’s local key’s sequence number and associated channel to match peer site APIC’s remote key policy from same site.
+
 In triage mode, audit log is also analyzed to see if sequenceNumber used to run out of sequence for remote keys for last 8000 rekeys.
+
 In monitor mode, syslog alert will be sent if syslog server IP is given, and key is out of sync.
 Both console and file-based logs are supported by default.
 
 
-# Usage
+# Python3 with Required package installed
+
+urllib3
+requests
 
 ## Quickstart
 
-
+python.exe C:/wksp/cloudseckey.py -n 192.168.10.41
 
 ## Full Run Example
 
 <pre>
-C:\env\Scripts\python.exe C:/wksp/cloudsec.py -n 192.168.10.41
+
+python.exe C:/wksp/cloudseckey.py -n 192.168.10.41
 Enter ND/MSO password for admin:
 AUS Eastern Standard Time 2022-09-14T20:11:21.771||INFO||(376)||Retrieving Sites Info from ND/MSO
 Enter APIC password for admin:
@@ -33,7 +40,8 @@ AUS Eastern Standard Time 2022-09-14T20:11:37.586||INFO||(419)||Cross site valid
 AUS Eastern Standard Time 2022-09-14T20:11:37.587||INFO||(438)||fabric-site1       id 1 --> fabric-site2     id 2 , keys synced at sequenceNumber: 1 , assocNum: 0
 AUS Eastern Standard Time 2022-09-14T20:11:37.587||INFO||(438)||fabric-site2       id 2 --> fabric-site1     id 1 , keys synced at sequenceNumber: 8512 , assocNum: 0
 
-C:\env\Scripts\python.exe C:/wksp/cloudsec.py -m -n 192.168.10.41 
+python.exe C:/wksp/cloudsec.py -m -n 192.168.10.41 
+
 Enter ND/MSO password for admin:
 AUS Eastern Standard Time 2022-09-14T20:12:02.816||INFO||(376)||Retrieving Sites Info from ND/MSO
 Enter APIC password for admin:
