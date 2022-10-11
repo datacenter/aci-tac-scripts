@@ -1,5 +1,7 @@
 # Cloudsec Key Sync Analyzer
 
+This script speed up the pre-shared key sync validation among each sites, so that we save the time for narrowing down inter-site cloudsec connectivity issues.
+
 Support triage mode and monitor mode, with minimal argument (ND/MSO IP address), where APIC (on-premises) IP for the site (with cloudsec enabled) is retrieved.
 
 For each site, fetch APIC’s local key’s sequence number and associated channel to match peer site APIC’s remote key policy from same site.
