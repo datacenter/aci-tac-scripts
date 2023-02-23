@@ -1,9 +1,9 @@
+#!/bin/bash
 #*********************************************************************************************************************
 #author josephyo
 #
 #This script automates the collection of objects routinely used troubleshooting ACI problems.
 #*********************************************************************************************************************
-#!/bin/bash
 
 function log() {
     ts=`date '+%Y-%m-%dT%H:%M:%S'`
