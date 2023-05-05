@@ -129,7 +129,7 @@ def main(filename, output_location):
 
                 for bentry in burst_temp:
                     burst_str = " ".join(str(x) for x in bentry.values())
-                    burst_output += f"    " + burst_str + "\n"
+                    burst_output += "    " + burst_str + "\n"
 
             ## Write the burst summary dict
             timestamp_summary = {
