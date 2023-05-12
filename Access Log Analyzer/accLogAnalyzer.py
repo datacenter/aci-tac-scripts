@@ -4,7 +4,7 @@ import argparse
 import os
 import re
 
-ACCLOG_REGEX = r"^(?P<RemoteAddrV6>::ffff|):?(?P<RemoteAddr>\d+\.\d+\.\d+\.\d+) \((?:-|(?P<Real_RemoteAddrV6>::ffff|):?(?P<Real_RemoteAddr>\d+\.\d+\.\d+\.\d+))\)(?:.*) \[(?P<TimeLocal>\d+\/\w+\/\d{4}:\d+:\d+:\d+).+]\s?\"(?P<Request>.*)\" (?P<Status>\d{3}) (?P<BodyBytesSent>\d+) \"(?P<HttpReferrer>.+)\" \"(?P<HttpUserAgent>.+)\""
+ACCLOG_REGEX = r"^(?P<RemoteAddrV6>::ffff|):?(?P<RemoteAddr>\d+\.\d+\.\d+\.\d+)\s?(?:\((?:-|(?P<Real_RemoteAddrV6>::ffff|):?(?P<Real_RemoteAddr>\d+\.\d+\.\d+\.\d+))\)(?:.*))?.+\[(?P<TimeLocal>\d+\/\w+\/\d{4}:\d+:\d+:\d+).+]\s?\"(?P<Request>.*)\" (?P<Status>\d{3}) (?P<BodyBytesSent>\d+) \"(?P<HttpReferrer>.+)\" \"(?P<HttpUserAgent>.+)\""
 
 
 def mprint(message):
