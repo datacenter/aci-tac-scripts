@@ -1,6 +1,6 @@
 # APIC Websocket Starter
 
-Script to quickly instantiate APIC Query Subscriptions (via Web Sockets) for testing/etc.
+Script to quickly instantiate APIC Query Subscriptions (via Web Sockets) for testing, monitoring and/or troubleshooting and isolation.
 
 ## Quickstart
 
