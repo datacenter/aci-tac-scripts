@@ -116,7 +116,7 @@ if __name__ == "__main__":
         dest="apic_addr",
         default="192.168.1.1",
         help="APIC IP Address. Ex: '192.168.1.1'",
-        required=True,
+        required=False,
         nargs="?",
     )
     parser.add_argument(
@@ -141,6 +141,8 @@ if __name__ == "__main__":
     USER = args.username
     BASE_URL = f"https://{APIC}"
     ENC = ".json"
+
+    print(f"Logging into APIC {APIC}")
 
     if args.xml_enc:
         import xml.etree.ElementTree as ET

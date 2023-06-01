@@ -24,7 +24,10 @@ In a python3 environment:
 1. Install requirements.txt
 2. Copy the `apic_query_subscription.py`
 3. Modify `QUERIES_TO_SUBSCRIBE` with interested APIC Queries
-4. Run the .py while providing the APIC IP and Username:
+4. [Optional] Modify the default `apic_addr`, `username` and `user_pwd`
+5. Run ``apic_query_subscription.py`.
+
+If defaults not modified, explicitly provide the APIC IP and Username arguments:
 
 ```
 python apic_query_subscription.py -a 192.168.1.1 -u automationUser
