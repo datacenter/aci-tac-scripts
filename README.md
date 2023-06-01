@@ -18,7 +18,10 @@ This script should be used while troubleshooting issues related to a slow APIC U
 
 This cli-based tool automates running elams on modular spines so that the user doesn't have to know the architecture of the platform, which lc's/fm's the traffic is hitting, etc. It also converts the report to the ereport format for easy readability.
 
-
 ## [Cloudsec KeySync Analyzer](https://github.com/datacenter/aci-tac-scripts/tree/main/Cloudsec%20KeySync%20Analyzer)
 
 This cli-based tool automates cloudsec key sync triage and monitor for on-premium MSO/NDO sites, which can speed up cloudsec connectivity validation, and allow timely monitor and alert in case the key were run out of sync by any chance.
+
+## [APIC Websocket Starter]())
+
+Run on a python3 environment. This script can be run to quickly instantiate APIC Query Subscriptions for the purposes of testing, monitoring, troubleshooting and isolation of an ACI Fabric.
