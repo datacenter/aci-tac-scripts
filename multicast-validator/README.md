@@ -129,3 +129,4 @@ EDT 2023-07-07T09:34:48.196||INFO||FINISHED!
 
 # Additional Information
 - Examples of how the ftriage tool works (and ELAM) can be found here - https://www.cisco.com/c/en/us/support/docs/cloud-systems-management/application-policy-infrastructure-controller-apic/217995-troubleshoot-aci-intra-fabric-forwarding.html
+- This tool was built using pyInstaller. The source python code that it was built from is in the pythonSource folder
