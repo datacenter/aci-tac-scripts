@@ -25,3 +25,7 @@ This cli-based tool automates cloudsec key sync triage and monitor for on-premiu
 ## [APIC Websocket Starter](https://github.com/datacenter/aci-tac-scripts/tree/main/APIC%20Websocket%20Starter)
 
 Run on a python3 environment. This script can be run to quickly instantiate APIC Query Subscriptions for the purposes of testing, monitoring, troubleshooting and isolation of an ACI Fabric.
+
+## [Multicast Validator](https://github.com/datacenter/aci-tac-scripts/tree/main/multicast-validator)
+
+This cli-based tool automates verification and troubleshooting of many L3 multicast topologies in ACI. It is executed from the apic and gathers fabric-wide information about a multicast flow in order to determine if there are any problems to flag
