@@ -3,7 +3,7 @@
 This tool is intended to verify and assist in troubleshooting routed multicast (PIM enabled) in ACI.
 
 # Usage
-1. Place the mcast_validator file in the apic.
+1. Download the mcast_validator file and scp/ftp/sftp/etc it onto the apic.
 2. cd to the location of the file.
 3. Execute - ```./mcast_validator```
 
