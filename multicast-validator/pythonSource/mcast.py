@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 setup_logger(logger, "debug")
 
 #Use for testing
-#arg_dic = {'uname': 'josephyo', 'tenant': 'jy', 'vrf': 'l3vrf1', 'rcvr': '39.99.61.0', 'src': '192.168.255.100', 'group': '229.0.0.102', 'nd': {'101': '10.0.216.64', '102': '10.0.216.68', '103': '10.0.216.67', '201': '10.2.168.65', '202': '10.2.216.67', '203': '10.2.216.65', '1201': '10.0.216.66', '1202': '10.0.216.65', '1203': '10.0.216.69', '2010': '10.20.0.176', '2202': '10.2.216.64'}, 'nd2': {'10.0.216.64': '101', '10.0.216.68': '102', '10.0.216.67': '103', '10.2.168.65': '201', '10.2.216.67': '202', '10.2.216.65': '203', '10.0.216.66': '1201', '10.0.216.65': '1202', '10.0.216.69': '1203', '10.20.0.176': '2010', '10.2.216.64': '2202'}}
+#arg_dic = {'uname': 'josephyo', 'tenant': 'jy', 'vrf': 'l3vrf1', 'rcvr': '192.168.255.100', 'src': '192.168.254.100', 'group': '229.0.0.100', 'nd': {'102': '10.0.216.68', '103': '10.0.216.67', '201': '10.2.168.65', '202': '10.2.216.67', '203': '10.2.216.65', '1201': '10.0.216.66', '1202': '10.0.216.65', '1203': '10.0.216.69', '2010': '10.20.0.176', '2202': '10.2.216.64'}, 'nd2': {'10.0.216.68': '102', '10.0.216.67': '103', '10.2.168.65': '201', '10.2.216.67': '202', '10.2.216.65': '203', '10.0.216.66': '1201', '10.0.216.65': '1202', '10.0.216.69': '1203', '10.20.0.176': '2010', '10.2.216.64': '2202'}}
 
 version, self_ip, self_node = get_fab_details()
 my_ver = version[self_node]
@@ -767,22 +767,19 @@ def fhr_checks(node_list):
     cmd_outputs = ssh_conn(self_ip, param_dic['uname'], password, node_ip_list, command_list)
     #Parse mfdm output into dictionary in format of {<nodeid>:[{group1 dic},{group2 dic},etc]}
     lf_mfdm = parse_mfdm_cli(cmd_outputs, param_dic['nd2'])
-    foundTunnel = ''
     
     for n in node_list:
+        foundTunnel = ''
         for m in lf_mfdm[n]:
             if len(m['oil']) > 0:
                 for i in m['oil']:
                     if 'Tunnel' in i:
                         logger.info(f'''Tunnel outgoing interface {i} found for ({param_dic['src']}, {param_dic['group']}) on FHMR node-{n}.''')
                         foundTunnel = 'yes'
-                    else:
-                        logger.warning(f'''FAILURE - No outgoing tunnel interface found for ({param_dic['src']}, {param_dic['group']}) on FHMR node-{n}. If multicast traffic originates on this node, it will fail. The later dataplane check in this tool can help confirm.''')
+                if foundTunnel != 'yes':
+                    logger.warning(f'''FAILURE - No outgoing tunnel interface found for ({param_dic['src']}, {param_dic['group']}) on FHMR node-{n}. If multicast traffic originates on this node, it will fail. The later dataplane check in this tool can help confirm.''')
             else:
                 logger.warning(f'''FAILURE - No outgoing tunnel interface found for ({param_dic['src']}, {param_dic['group']}) on FHMR node-{n}. If multicast traffic originates on this node, it will fail. The later dataplane check in this tool can help confirm.''')
-    
-    if foundTunnel != 'yes':
-        logger.warning(f'''FAILURE - No outgoing tunnel interface found for ({param_dic['src']}, {param_dic['group']}) on any FHMR nodes! Flow will fail! Use the dataplane checks later on to verify if the mcast flow is actually hitting the FHMR's! Check TTL as well! Check leaf's route to the RP!''')
 
 def generic_leaf_checks(lo_dic, pim_neigh_dic, stripe_winner_node):
     #Get node list containing all nodes that previously had mcast role assigned.
@@ -1195,6 +1192,7 @@ def pim_ext_ifs(vrf_dn):
                  If the RP is EXTERNAL, has it received a join from receiver? It won't send a join back towards the source until this is done.
                  If the RP is EXTERNAL, does it have a learn for the mroute source in its mroute table?
                  If the RP is EXTERNAL, does the route back to the source point to ACI?
+                 If the RP is EXTERNAL, ensure PIM is enabled on the interface that provides RP service.
                  If the RP is INTERNAL, do external devices have a route to the fabric RP?
                  If the RP is INTERNAL and external devices don't have a route to the RP, is an export route-control subnet configured to advertise the RP?''')
     else:
