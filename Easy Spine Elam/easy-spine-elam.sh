@@ -598,14 +598,16 @@ log "Gathering required hardware information..."
 #Build dictionary to map each module id to the asic family used for elams
 declare -A asic_dict
 for mod in $modList; do
-    asic=$(icurl 'http://localhost:7777/api/class/eqptCh.json?query-target=children&target-subtree-class=eqptFCSlot,eqptLCSlot&query-target-filter=or(and(eq(eqptFCSlot.physId,"'$mod'"))and(eq(eqptLCSlot.physId,"'$mod'")))&rsp-subtree=full&target-subtree-class=eqptSensor&rsp-subtree-filter=eq(eqptSensor.type,"asic")' 2>/dev/null | python -m json.tool | egrep "model.*instance" | awk -F "\"" '{print $4}' | awk '{print $1}' | uniq)
+    asic=$(icurl 'http://localhost:7777/api/class/eqptCh.json?query-target=children&target-subtree-class=eqptFCSlot,eqptLCSlot&query-target-filter=or(and(eq(eqptFCSlot.physId,"'$mod'"))and(eq(eqptLCSlot.physId,"'$mod'")))&rsp-subtree=full&target-subtree-class=eqptSensor&rsp-subtree-filter=eq(eqptSensor.type,"asic")' 2>/dev/null | python -m json.tool | egrep "model.*instance" | awk -F "\"" '{print $4}' | awk '{print $1}' | uniq -i)
     
     if [[ $asic == "Sugarbowl" ]] || [[ $asic == "LAC" ]]; then
         asic_family=tah
     elif [[ $asic == "Homewood" ]]; then
         asic_family=roc
-    elif [[ $asic == "Wolfridge" ]]; then
+    elif [[ $asic == "Wolfridge" ]] || [[ $asic == "WOL" ]] || [[ $asic == "Wol" ]]; then
         asic_family=app
+    elif [[ $asic == "Quadpeaks" ]]; then
+        asic_family=cho
     fi
 
     asic_dict[$mod]=$asic_family
@@ -749,3 +751,4 @@ rm -f /bootflash/pretty_elam_report.txt
 #This file is used to log commands that are sent to hardware. Useful to verify since vsh_lc can't directly send errors, exit codes, etc to ibash
 log "CLI's sent to hardware are saved in /bootflash/elam_output-mod<id>"
 log "FINISHED!"
+
