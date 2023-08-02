@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 setup_logger(logger, "debug")
 
 #Use for testing
-#arg_dic = {'uname': 'josephyo', 'tenant': 'jy', 'vrf': 'l3vrf1', 'rcvr': '192.168.255.100', 'src': '192.168.254.100', 'group': '229.0.0.100', 'nd': {'102': '10.0.216.68', '103': '10.0.216.67', '201': '10.2.168.65', '202': '10.2.216.67', '203': '10.2.216.65', '1201': '10.0.216.66', '1202': '10.0.216.65', '1203': '10.0.216.69', '2010': '10.20.0.176', '2202': '10.2.216.64'}, 'nd2': {'10.0.216.68': '102', '10.0.216.67': '103', '10.2.168.65': '201', '10.2.216.67': '202', '10.2.216.65': '203', '10.0.216.66': '1201', '10.0.216.65': '1202', '10.0.216.69': '1203', '10.20.0.176': '2010', '10.2.216.64': '2202'}}
+#arg_dic = {'uname': 'josephyo', 'tenant': 'jy', 'vrf': 'l3vrf1', 'rcvr': '192.168.254.100', 'src': '192.168.255.100', 'group': '229.0.0.101', 'nd': {'102': '10.0.216.68', '103': '10.0.216.67', '201': '10.2.168.65', '202': '10.2.216.67', '203': '10.2.216.65', '1201': '10.0.216.66', '1202': '10.0.216.65', '1203': '10.0.216.69', '2010': '10.20.0.176', '2202': '10.2.216.64'}, 'nd2': {'10.0.216.68': '102', '10.0.216.67': '103', '10.2.168.65': '201', '10.2.216.67': '202', '10.2.216.65': '203', '10.0.216.66': '1201', '10.0.216.65': '1202', '10.0.216.69': '1203', '10.20.0.176': '2010', '10.2.216.64': '2202'}}
 
 version, self_ip, self_node = get_fab_details()
 my_ver = version[self_node]
@@ -38,19 +38,13 @@ def ext_src_int_rcvr(arg_dic):
     ####
     ####Is PIM enabled on VRF and get gipo
     ####
+    global vrf_vnid
     vrf_dn, vrf_gipo, vrf_vnid = check_pim_vrf()
     
     ####
     ####Check for pim enabled l3outs configured in the supplied vrf
     ####
     check_pim_l3outs(vrf_dn)
-    
-    ####
-    ####Get BL List that has deployed loopbacks in the intended vrf
-    ####
-    lo_dic = check_pim_loopbacks(vrf_dn)
-    for k in lo_dic.keys():
-        mcast_role[k].append("BL")
     
     ####
     ####Get configured RP info
@@ -60,6 +54,13 @@ def ext_src_int_rcvr(arg_dic):
         logger.warning(f'''FAILURE - No RP addresses were found configured in vrf {vrf_dn}. This config is required.''')
         logger.info('Exiting')
         sys.exit()
+
+    ####
+    ####Get BL List that has deployed loopbacks in the intended vrf
+    ####
+    lo_dic = check_pim_loopbacks(vrf_dn, rp_info)
+    for k in lo_dic.keys():
+        mcast_role[k].append("BL")
     
     ####
     ####Find local endpoint learn for the receiver in format of {ip : '', mac : '', bd : '', node : '', interface : []}
@@ -180,19 +181,13 @@ def int_src_ext_rcvr(arg_dic):
     ####
     ####Is PIM enabled on VRF and get gipo
     ####
+    global vrf_vnid
     vrf_dn, vrf_gipo, vrf_vnid = check_pim_vrf()
     
     ####
     ####Check for pim enabled l3outs configured in the supplied vrf
     ####
     check_pim_l3outs(vrf_dn)
-    
-    ####
-    ####Get BL List that has deployed loopbacks in the intended vrf
-    ####
-    lo_dic = check_pim_loopbacks(vrf_dn)
-    for k in lo_dic.keys():
-        mcast_role[k].append("BL")
     
     ####
     ####Get configured RP info
@@ -202,6 +197,13 @@ def int_src_ext_rcvr(arg_dic):
         logger.warning(f'''FAILURE - No RP addresses were found configured in vrf {vrf_dn}. This config is required.''')
         logger.info('Exiting')
         sys.exit()
+
+    ####
+    ####Get BL List that has deployed loopbacks in the intended vrf
+    ####
+    lo_dic = check_pim_loopbacks(vrf_dn, rp_info)
+    for k in lo_dic.keys():
+        mcast_role[k].append("BL")
     
     ####
     ####Find local endpoint learn for the source in format of {ip : '', mac : '', bd : '', node : '', interface : []}
@@ -292,19 +294,13 @@ def int_src_int_rcvr(arg_dic):
     ####
     ####Is PIM enabled on VRF and get gipo
     ####
+    global vrf_vnid
     vrf_dn, vrf_gipo, vrf_vnid = check_pim_vrf()
     
     ####
     ####Check for pim enabled l3outs configured in the supplied vrf
     ####
     check_pim_l3outs(vrf_dn)
-    
-    ####
-    ####Get BL List that has deployed loopbacks in the intended vrf
-    ####
-    lo_dic = check_pim_loopbacks(vrf_dn)
-    for k in lo_dic.keys():
-        mcast_role[k].append("BL")
     
     ####
     ####Get configured RP info
@@ -314,6 +310,13 @@ def int_src_int_rcvr(arg_dic):
         logger.warning(f'''FAILURE - No RP addresses were found configured in vrf {vrf_dn}. This config is required.''')
         logger.info('Exiting')
         sys.exit()
+    
+    ####
+    ####Get BL List that has deployed loopbacks in the intended vrf
+    ####
+    lo_dic = check_pim_loopbacks(vrf_dn, rp_info)
+    for k in lo_dic.keys():
+        mcast_role[k].append("BL")
     
     ####
     ####Find local endpoint learn for the source in format of {ip : '', mac : '', bd : '', node : '', interface : []}
@@ -414,19 +417,13 @@ def ext_src_ext_rcvr(arg_dic):
     ####
     ####Is PIM enabled on VRF and get gipo
     ####
+    global vrf_vnid
     vrf_dn, vrf_gipo, vrf_vnid = check_pim_vrf()
     
     ####
     ####Check for pim enabled l3outs configured in the supplied vrf
     ####
     check_pim_l3outs(vrf_dn)
-    
-    ####
-    ####Get BL List that has deployed pim-enabled loopbacks in the intended vrf
-    ####
-    lo_dic = check_pim_loopbacks(vrf_dn)
-    for k in lo_dic.keys():
-        mcast_role[k].append("BL")
     
     ####
     ####Get configured RP info
@@ -436,6 +433,13 @@ def ext_src_ext_rcvr(arg_dic):
         logger.warning(f'''FAILURE - No RP addresses were found configured in vrf {vrf_dn}. This config is required.''')
         logger.info('Exiting')
         sys.exit()
+    
+    ####
+    ####Get BL List that has deployed pim-enabled loopbacks in the intended vrf
+    ####
+    lo_dic = check_pim_loopbacks(vrf_dn, rp_info)
+    for k in lo_dic.keys():
+        mcast_role[k].append("BL")
     
     ####
     ####Need to get ssh password for cli commands.
@@ -972,7 +976,7 @@ def check_hal_group(node_list, stripe_winner_node, extif_dic={}):
         logger.info(f'''Group {param_dic['group']} is installed in hardware on nodes {ep_bl_list}''')
         if msource != "internal": #Don't care about stripe winner so much if source is internal
             if stripe_winner_node not in ep_bl_list:
-                logger.warning(f'''FAILURE - Group{param_dic['group']} is NOT installed in hardware on stripe-winner node {stripe_winner_node}. Is dataplane active? Is it making it to ACI? Does the BL have a route to the source? If the RP is external, is it getting a join from ACI?''')
+                logger.warning(f'''FAILURE - Group {param_dic['group']} is NOT installed in hardware on stripe-winner node {stripe_winner_node}. Is dataplane active? Is it making it to ACI? Does the BL have a route to the source? If the RP is external, is it getting a join from ACI?''')
             else:
                 logger.info(f'''Group {param_dic['group']} is correctly installed in hardware on stripe-winner node {stripe_winner_node}.''')
         if msource == 'internal': #Make sure that /32 is installed on node that has external oif
@@ -986,7 +990,7 @@ def check_hal_group(node_list, stripe_winner_node, extif_dic={}):
                             logger.warning(f'''FAILURE - Group {param_dic['group']} is NOT installed in hardware on BL node {k} which has external OIFs {v}. This will break this flow! For an internal source, the spines should immediately install the mroute on the BL's via NGMVPN (coop) once a source starts sending traffic!''')
         
     else:
-        logger.warning(f'''FAILURE - Group{param_dic['group']} is NOT installed in hardware on any nodes. Is the control plane built? Is the receiver sending joins? Is the source sending traffic? Does the RP have both registers from the source and joins for the group when looking at the mroute table?''')
+        logger.warning(f'''FAILURE - Group {param_dic['group']} is NOT installed in hardware on any nodes. Is the control plane built? Is the receiver sending joins? Is the source sending traffic? Does the RP have both registers from the source and joins for the group when looking at the mroute table?''')
 
 def check_pim_vrf():
     vrf_dn = f'''uni/tn-{param_dic['tenant']}/ctx-{param_dic['vrf']}'''
@@ -1042,7 +1046,7 @@ def check_pim_l3outs(vrf_dn):
     logger.info(f'''The following PIM-enabled l3outs were found in tn-{param_dic['tenant']}/ctx-{param_dic['vrf']}:''')
     print(l3out_list)
 
-def check_pim_loopbacks(vrf_dn):
+def check_pim_loopbacks(vrf_dn, rp_info):
     obj_query = f'''query-target-filter=and(and(wcard(pimIf.dn,"{param_dic['tenant']}:{param_dic['vrf']}"))and(wcard(pimIf.id,"lo")))'''
     rsp = query_class('pimIf', obj_query=obj_query)
     e = handle_api_rsp(rsp)
@@ -1054,10 +1058,27 @@ def check_pim_loopbacks(vrf_dn):
         logger.info('Exiting')
         sys.exit()
     else:
+        lo_list = []
+        if 'fabricRP' in rp_info.keys():
+            for i in rsp['imdata']:
+                addr =  i['pimIf']['attributes']['ipAddr'].split("/")[0]
+                if addr not in rp_info['fabricRP']:
+                    lo_list.append(i)
+        else:
+            lo_list = rsp['imdata']
+        
+        if len(lo_list) == 0:
+            logger.warning(f'''FAILURE - No PIM-enabled, non-fabric-rp loopbacks were found on leafs in VRF {vrf_dn}.''')
+            print('''Please check the following:
+                     Is "Use Router ID as Loopback" configured? If not, is a different loopback configured on each BL?
+                     Are any faults raised against the l3out?''')
+            logger.info('Exiting')
+            sys.exit()
+        
         logger.info(f'''Pim-enabled loopbacks were found on BL's for Vrf {vrf_dn}.''')
     
     lo_dic = {}
-    for r in rsp['imdata']:
+    for r in lo_list:
         n = r['pimIf']['attributes']['dn']
         n = ''.join(re.findall(r"^.*pod\-[0-9]\/node\-[0-9]+", n))
         n = ''.join(re.findall(r"[0-9]+$", n))
@@ -1173,11 +1194,22 @@ def get_fabricForwarder(lo_dic):
             s_g_ff_nodes.append(k)
         
     if star_g_ff_count == 0:
-        logger.warning(f'''FAILURE - Fabric-forwarder was not found for {star_g}. This will prevent the BL's from flooding external multicast into the overlay!''')
+        logger.warning(f'''FAILURE - Fabric-forwarder was not found for {star_g}. This will prevent the BL's from flooding external multicast into the overlay! Please check the following:''')
+        print(f"""    Is there an IGMP group entry for this group in the fabric? (See previous check)
+    Do all spines in the Receiver and BL pods have coop entries for the group? To see this please run from an APIC - 
+        moquery -c coopRsMcgrp2Leaf -f 'coop.RsMcgrp2Leaf.dn*"{param_dic['group']}-mgv4-{vrf_vnid}"'
+    Do all spines in the BL pods have coop entries for the BL pteps? To see this please run from an APIC - 
+        moquery -c coopRsMrtr2Leaf -f 'coop.RsMrtr2Leaf.dn*"mrtr-{vrf_vnid}"'""")
     elif star_g_ff_count >= 2:
         logger.warning(f'''FAILURE - Multiple fabric-forwarders (nodes {star_g_ff_nodes}) were found for {star_g}. This could result in the BL's flooding duplicated copies of external multicast into the overlay!''')
+    
     if s_g_ff_count == 0:
-        logger.warning(f'''FAILURE - Fabric-forwarder was not found for {s_g}. This will prevent the BL's from flooding external multicast into the overlay!''')
+        logger.warning(f'''FAILURE - Fabric-forwarder was not found for {s_g}. This will prevent the BL's from flooding external multicast into the overlay! Please check the following:''')
+        print(f"""    Is there an IGMP group entry for this group in the fabric? (See previous check)
+    Do all spines in the Receiver and BL pods have coop entries for the group? To see this please run from an APIC - 
+        moquery -c coopRsMcgrp2Leaf -f 'coop.RsMcgrp2Leaf.dn*"{param_dic['group']}-mgv4-{vrf_vnid}"'
+    Do all spines in the BL pods have coop entries for the BL pteps? To see this please run from an APIC - 
+        moquery -c coopRsMrtr2Leaf -f 'coop.RsMrtr2Leaf.dn*"mrtr-{vrf_vnid}"'""")
     elif s_g_ff_count >= 2:
         logger.warning(f'''FAILURE - Multiple fabric-forwarders (nodes {s_g_ff_nodes}) were found for {s_g}. This could result in the BL's flooding duplicated copies of external multicast into the overlay!''')
 
