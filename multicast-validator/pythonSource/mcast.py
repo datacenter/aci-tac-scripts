@@ -125,6 +125,7 @@ def ext_src_int_rcvr(arg_dic):
     ####a different BL than the stripe winner has the best route to the RP or Src
     ####
     logger.info('Determining fabric-forwarder. The fabric-forwarder is responsible for forwarding external flows into the fabric. Usually this will be the same as the stripe winner unless a different BL than the stripe winner has the best route to the RP or Src.')
+    logger.info('Note: If fabric-rp is enabled, then fabric-forwarder will only be assigned after a source register is received. Check mroute table on BLs to see if a Source,Group tree is mroute is installed.')
     get_fabricForwarder(lo_dic)
     
     ####
@@ -648,7 +649,7 @@ def parse_mroute_cli(cmd_out, node_dic):
                         for i in oil:
                             i = i.lstrip(' ').split(',')[0]
                             oil_list.append(i)
-                        rpf_nei = re.findall(r"RPF nbr.*", m)[0]
+                        rpf_nei = re.findall(r"RPF nbr.*", m)[0].split(',')[0]
                         rpf_nei = re.findall(r"\S+$", rpf_nei)[0]
                         
                         mroute_outputs_dic = {"group"   : group,
@@ -829,6 +830,11 @@ def generic_leaf_checks(lo_dic, pim_neigh_dic, stripe_winner_node):
     cmd_outputs = ssh_conn(self_ip, param_dic['uname'], password, node_ip_list, command_list)
     #Parse mroute output into dictionary in format of {<nodeid>:[{group1 dic},{group2 dic},etc]}
     pim_mroute_rp = parse_pim_rp_cli(cmd_outputs, param_dic['nd2'])
+    if len(pim_mroute_rp) == 0:
+        logger.warning(f'''FAILURE - Operational RP wasn't found for group {param_dic['group']} on any nodes. Are there route-maps exclusing this group from using any configured RP? Is there an empty route-map associated with the configured RP?''')
+        logger.info('Exiting')
+        sys.exit()
+    
     missing_rp = 'no'
     
     for k, v in pim_mroute_rp.items():
@@ -892,12 +898,14 @@ def generic_leaf_checks(lo_dic, pim_neigh_dic, stripe_winner_node):
                                     if 'pervasive' in mroute['rpf_nei']:
                                         print('''        INFO: RPF was fabric owned BD subnet proxy route (pervasive). Expected if source is internal.''')
                                     else:
-                                        logger.warning(f'''FAILURE - No PIM neighbor found for RPF neighbor {mroute['rpf_nei']}!''')
+                                        if 'loopback' not in mroute['in_int']:
+                                            logger.warning(f'''FAILURE - No PIM neighbor found for RPF neighbor {mroute['rpf_nei']}!''')
                         except:
                             if 'pervasive' in mroute['rpf_nei']:
                                 print('''        INFO: RPF was fabric owned BD subnet proxy route (pervasive). Expected if source is internal.''')
                             else:
-                                logger.warning(f'''FAILURE - No PIM neighbor found for RPF neighbor {mroute['rpf_nei']}!''')
+                                if 'loopback' not in mroute['in_int']:
+                                    logger.warning(f'''FAILURE - No PIM neighbor found for RPF neighbor {mroute['rpf_nei']}!''')
                 
                 if len(mroute['oil']) == 0 and 'SL' not in mcast_role[k]:
                     logger.warning('FAILURE - Mroute exists but no outgoing interfaces found! Is this group still active on this node? Datapath checking may be useful.')
@@ -1060,10 +1068,29 @@ def check_pim_loopbacks(vrf_dn, rp_info):
     else:
         lo_list = []
         if 'fabricRP' in rp_info.keys():
+            lo_node_list = []
+            deployed_fabricrp_nodes = []
+            missing_nodes = []
             for i in rsp['imdata']:
                 addr =  i['pimIf']['attributes']['ipAddr'].split("/")[0]
+                n = i['pimIf']['attributes']['dn']
+                n = ''.join(re.findall(r"^.*pod\-[0-9]\/node\-[0-9]+", n))
+                n = ''.join(re.findall(r"[0-9]+$", n))
+                
                 if addr not in rp_info['fabricRP']:
                     lo_list.append(i)
+                    lo_node_list.append(n)
+                else:
+                    deployed_fabricrp_nodes.append(n)
+            
+            if len(deployed_fabricrp_nodes) > 0:
+                for n in deployed_fabricrp_nodes:
+                    if n not in lo_node_list:
+                        missing_nodes.append(n)
+            
+            if len(missing_nodes) > 0:
+                logger.warning(f'''Node ID(s) {missing_nodes} have fabric-rp loopback deployed but no loopback deployed through PIM l3out. All PIM L3out nodes should have loopback deployed. Ensure loopback address is manually defined in node profile or "Use Router ID as Loopback Address" is selected.''')
+        
         else:
             lo_list = rsp['imdata']
         
@@ -1165,18 +1192,26 @@ def get_fabricForwarder(lo_dic):
     
     cmd_outputs = ssh_conn(self_ip, param_dic['uname'], password, node_ip_list, command_list)
     
+    found_sg = 'no'
+    found_starg = 'no'
     for key1, value1 in cmd_outputs.items():
         nodeID =  ptep_to_node[key1]
         for cmd, mroute in value1.items():
             mroute_list = mroute.split("\n\n")
             for m in mroute_list:
-                if param_dic['group'] in m and 'fabricFwder' in m:
+                if param_dic['group'] in m and "not found" not in m:
                     group_pair = re.findall(r'\S+,\s[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/32\)', m)[0]
-                    if group_pair == s_g or group_pair == star_g:
-                        if nodeID in ff_winner_dic.keys():
-                            ff_winner_dic[nodeID].append(group_pair)
-                        else:
-                            ff_winner_dic[nodeID] = [group_pair]
+                    if 'fabricFwder' in m:
+                        if group_pair == s_g or group_pair == star_g:
+                            if nodeID in ff_winner_dic.keys():
+                                ff_winner_dic[nodeID].append(group_pair)
+                            else:
+                                ff_winner_dic[nodeID] = [group_pair]
+                    
+                    if group_pair == s_g:
+                        found_sg = 'yes'
+                    if group_pair == star_g:
+                        found_starg = 'yes'
     
     star_g_ff_count = 0
     star_g_ff_nodes = []
@@ -1192,26 +1227,33 @@ def get_fabricForwarder(lo_dic):
             logger.info(f'''Fabric-forwarder for {s_g} is node-{k}''')
             s_g_ff_count += 1
             s_g_ff_nodes.append(k)
-        
-    if star_g_ff_count == 0:
-        logger.warning(f'''FAILURE - Fabric-forwarder was not found for {star_g}. This will prevent the BL's from flooding external multicast into the overlay! Please check the following:''')
-        print(f"""    Is there an IGMP group entry for this group in the fabric? (See previous check)
-    Do all spines in the Receiver and BL pods have coop entries for the group? To see this please run from an APIC - 
-        moquery -c coopRsMcgrp2Leaf -f 'coop.RsMcgrp2Leaf.dn*"{param_dic['group']}-mgv4-{vrf_vnid}"'
-    Do all spines in the BL pods have coop entries for the BL pteps? To see this please run from an APIC - 
-        moquery -c coopRsMrtr2Leaf -f 'coop.RsMrtr2Leaf.dn*"mrtr-{vrf_vnid}"'""")
-    elif star_g_ff_count >= 2:
-        logger.warning(f'''FAILURE - Multiple fabric-forwarders (nodes {star_g_ff_nodes}) were found for {star_g}. This could result in the BL's flooding duplicated copies of external multicast into the overlay!''')
     
-    if s_g_ff_count == 0:
-        logger.warning(f'''FAILURE - Fabric-forwarder was not found for {s_g}. This will prevent the BL's from flooding external multicast into the overlay! Please check the following:''')
-        print(f"""    Is there an IGMP group entry for this group in the fabric? (See previous check)
-    Do all spines in the Receiver and BL pods have coop entries for the group? To see this please run from an APIC - 
-        moquery -c coopRsMcgrp2Leaf -f 'coop.RsMcgrp2Leaf.dn*"{param_dic['group']}-mgv4-{vrf_vnid}"'
-    Do all spines in the BL pods have coop entries for the BL pteps? To see this please run from an APIC - 
-        moquery -c coopRsMrtr2Leaf -f 'coop.RsMrtr2Leaf.dn*"mrtr-{vrf_vnid}"'""")
-    elif s_g_ff_count >= 2:
-        logger.warning(f'''FAILURE - Multiple fabric-forwarders (nodes {s_g_ff_nodes}) were found for {s_g}. This could result in the BL's flooding duplicated copies of external multicast into the overlay!''')
+    #Only check for ff if the group exists in show ip pim route on the leafs. If the group doesn't exist, its probably something more basic going on.
+    if found_starg == 'yes':
+        if star_g_ff_count == 0:
+            logger.warning(f'''FAILURE - Fabric-forwarder was not found for {star_g}. This will prevent the BL's from flooding external multicast into the overlay! Please check the following:''')
+            print(f"""    Is there an IGMP group entry for this group in the fabric? (See previous check)
+        Do all spines in the Receiver and BL pods have coop entries for the group? To see this please run from an APIC - 
+            moquery -c coopRsMcgrp2Leaf -f 'coop.RsMcgrp2Leaf.dn*"{param_dic['group']}-mgv4-{vrf_vnid}"'
+        Do all spines in the BL pods have coop entries for the BL pteps? To see this please run from an APIC - 
+            moquery -c coopRsMrtr2Leaf -f 'coop.RsMrtr2Leaf.dn*"mrtr-{vrf_vnid}"'""")
+        elif star_g_ff_count >= 2:
+            logger.warning(f'''FAILURE - Multiple fabric-forwarders (nodes {star_g_ff_nodes}) were found for {star_g}. This could result in the BL's flooding duplicated copies of external multicast into the overlay!''')
+    else:
+        logger.warning(f'''Could not get Fabric Forwarder for {star_g} because PIM route was not found on any border leaf nodes.''')
+    
+    if found_sg == 'yes':
+        if s_g_ff_count == 0:
+            logger.warning(f'''FAILURE - Fabric-forwarder was not found for {s_g}. This will prevent the BL's from flooding external multicast into the overlay! Please check the following:''')
+            print(f"""    Is there an IGMP group entry for this group in the fabric? (See previous check)
+        Do all spines in the Receiver and BL pods have coop entries for the group? To see this please run from an APIC - 
+            moquery -c coopRsMcgrp2Leaf -f 'coop.RsMcgrp2Leaf.dn*"{param_dic['group']}-mgv4-{vrf_vnid}"'
+        Do all spines in the BL pods have coop entries for the BL pteps? To see this please run from an APIC - 
+            moquery -c coopRsMrtr2Leaf -f 'coop.RsMrtr2Leaf.dn*"mrtr-{vrf_vnid}"'""")
+        elif s_g_ff_count >= 2:
+            logger.warning(f'''FAILURE - Multiple fabric-forwarders (nodes {s_g_ff_nodes}) were found for {s_g}. This could result in the BL's flooding duplicated copies of external multicast into the overlay!''')
+    else:
+        logger.warning(f'''Could not get Fabric Forwarder for {s_g} because PIM route was not found on any border leaf nodes.''')
 
 def pim_ext_ifs(vrf_dn):
     groupoif_dic = {}
@@ -1329,8 +1371,11 @@ def parse_pim_rp_cli(cmd_out, node_dic):
     for key1, value1 in cmd_out.items():
         nodeID = node_dic[key1]
         for key2, value2 in value1.items():
-            oper_rp = re.findall(r'RP.*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+.*uptime', value2)[0]
-            oper_rp = re.findall(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', oper_rp)[0]
-            node_rp_outputs_dic[nodeID] = oper_rp
+            try:
+                oper_rp = re.findall(r'RP.*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+.*uptime', value2)[0]
+                oper_rp = re.findall(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', oper_rp)[0]
+                node_rp_outputs_dic[nodeID] = oper_rp
+            except:
+                continue
     
     return node_rp_outputs_dic
