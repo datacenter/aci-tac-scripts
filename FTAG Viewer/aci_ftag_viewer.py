@@ -92,7 +92,7 @@ def get_cmd(cmd):
         return subprocess.check_output(cmd, shell=True, 
             stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        logger.warn("error executing command: %s" % e)
+        logger.warning("error executing command: %s" % e)
         return None
 
 def pretty_print(js):
@@ -125,12 +125,12 @@ def icurl(url, **kwargs):
         try:
             resp = get_cmd("icurl -s http://127.0.0.1:7777/%s" % turl)
         except Exception as e:
-            logger.warn("exception occurred in get request: %s" % (
+            logger.warning("exception occurred in get request: %s" % (
                 traceback.format_exc()))
             return None
         logger.debug("response time: %f" % (time.time() - tstart))
         if resp is None:
-            logger.warn("failed to get data: %s" % url)
+            logger.warning("failed to get data: %s" % url)
             return None
         try:
             js = json.loads(resp)
@@ -267,13 +267,13 @@ class NodeFtag(object):
             r1 = NodeFtag.port_reg.search(root_port)
             if r1 is not None: root_port = r1.group("port")
             else:
-                logger.warn("failed to parse root port: %s" % root_port)
+                logger.warning("failed to parse root port: %s" % root_port)
                 return False
 
         if self.root_port is None: 
             self.root_port = root_port
         elif self.root_port != root_port:
-            logger.warn("duplicate root port %s != %s on tree %s" % (
+            logger.warning("duplicate root port %s != %s on tree %s" % (
                 self.root_port, root_port, self.tree_id))
             return False
         return True
@@ -315,27 +315,27 @@ class NodeAdj(object):
                 or self.sideA["local"]["port"]!=self.sideB["remote"]["port"] \
                 or self.sideB["local"]["node"]!=self.sideA["remote"]["node"] \
                 or self.sideB["local"]["port"]!=self.sideA["remote"]["port"]:
-                logger.warn("Invalid adj\n%s\n%s" % (pretty_print(self.sideA),
+                logger.warning("Invalid adj\n%s\n%s" % (pretty_print(self.sideA),
                     pretty_print(self.sideB)))
             else:
                 self.complete = True
         else:   
             t = NodeAdj()
             t.add(local_node, local_port, remote_node, remote_port)
-            logger.warn("can't add %s to existing adj %s" % (t, self))
+            logger.warning("can't add %s to existing adj %s" % (t, self))
 
     def get_remote_side(self, node_id):
         # for provided node_id, determine if it is local on sideA or sideB
         # and return the opposite site.  Return None if not found or not 
         # completed objet
         if not self.complete: 
-            logger.warn("can't get remote adj for incomplete NodeAdj: %s"%self)
+            logger.warning("can't get remote adj for incomplete NodeAdj: %s"%self)
             return None
         if self.sideA["local"]["node"] == node_id:
             return self.sideB
         elif self.sideB["local"]["node"] == node_id:
             return self.sideA
-        logger.warn("node_id %s not part of NodeAdj: %s" % (node_id, self))
+        logger.warning("node_id %s not part of NodeAdj: %s" % (node_id, self))
         return None
 
     def __repr__(self):
@@ -414,7 +414,7 @@ class Node(object):
         if local_port not in self.lldp_adj:
             self.lldp_adj[local_port] = adj
         else:
-            logger.warn("can't add second lldp adj to %s (curr:%s, new:%s)"%(
+            logger.warning("can't add second lldp adj to %s (curr:%s, new:%s)"%(
                 self, self.lldp_adj[local_port], adj))
 
     def add_isis_neighbor(self, local_port, adj):
@@ -422,7 +422,7 @@ class Node(object):
         if local_port not in self.isis_adj:
             self.isis_adj[local_port] = adj
         else:
-            logger.warn("can't add second isis adj to %s (curr:%s, new:%s)"%(
+            logger.warning("can't add second isis adj to %s (curr:%s, new:%s)"%(
                 self, self.isis_adj[local_port], adj))
 
     def add_ftag_state(self, tree_id, state):
@@ -434,7 +434,7 @@ class Node(object):
         # add ftag root_port to tree
         if tree_id not in self.ftags: self.ftags[tree_id] = NodeFtag(tree_id)
         if not self.ftags[tree_id].add_root_port(root_port):
-            logger.warn("failed to add root port %s on node %s tree %s"%(
+            logger.warning("failed to add root port %s on node %s tree %s"%(
                 root_port, self, tree_id))
 
     def add_ftag_oif_list(self, tree_id, oif_list):
@@ -446,10 +446,10 @@ class Node(object):
         # recursive function that walks provided ftag tree and returns
         # discovered list of nodes. 
         if tree_id not in self.ftags:
-            logger.warn("unknown tree %s on %s" % (tree_id, self))
+            logger.warning("unknown tree %s on %s" % (tree_id, self))
             return 
         if self.ftags[tree_id].state == "inactive":
-            logger.warn("tree %s is inactive on %s" % (tree_id, self))
+            logger.warning("tree %s is inactive on %s" % (tree_id, self))
             return 
         tree["node"] = self.node_id
         if len(self.ftags[tree_id].oif)==0: return 
@@ -467,25 +467,25 @@ class Node(object):
                         port, tree_id, self))
                     is_external = True
                 else:
-                    logger.warn("invalid isis adj on port %s in tree %s of %s"%(
+                    logger.warning("invalid isis adj on port %s in tree %s of %s"%(
                         port, tree_id, self))
             # should never happen since isis_adj built after successful lldp
             elif port not in self.lldp_adj or not self.lldp_adj[port].complete:
-                logger.warn("invalid lldp adj on port %s in tree %s of %s"%s(
+                logger.warning("invalid lldp adj on port %s in tree %s of %s"%s(
                     port, tree_id, self))
                 valid_oif = False
             else:
                 sideB = self.lldp_adj[port].get_remote_side(self.node_id)
                 if sideB is None:
-                    logger.warn("invalid link adj on port %s in tree %s of %s"%(
+                    logger.warning("invalid link adj on port %s in tree %s of %s"%(
                         port, tree_id, self))
                     valid_oif = False
                 else:
                     remote_node_id = sideB["local"]["node"]
                     remote_port = sideB["local"]["port"]
                     if remote_node_id not in nodes:
-                        logger.warn("node %s not found in nodes"%remote_node_id)
-                        logger.warn("invalid adj on port %s in tres %s of %s"%(
+                        logger.warning("node %s not found in nodes"%remote_node_id)
+                        logger.warning("invalid adj on port %s in tres %s of %s"%(
                             port, tree_id, self))
                         valid_oif = False
             
@@ -498,13 +498,13 @@ class Node(object):
                 # corresponding port in it's oif for this tree
                 if tree_id not in remote_node.ftags or \
                     remote_port not in remote_node.ftags[tree_id].oif:
-                    logger.warn("FTAG %s on pod %s invalid  (%s:%s-%s:%s) %s"%(
+                    logger.warning("FTAG %s on pod %s invalid  (%s:%s-%s:%s) %s"%(
                         tree_id, self.pod_id, self.node_id,port,remote_node_id,
                         remote_port, "neighbor does not have port in OIF list"))
                     valid_oif = False
                 # double check that the remote node is part of the same pod
                 elif remote_node.pod_id != self.pod_id:
-                    logger.warn("FTAG %s on pod %s invalid  (%s:%s-%s:%s) %s"%(
+                    logger.warning("FTAG %s on pod %s invalid  (%s:%s-%s:%s) %s"%(
                         tree_id, self.pod_id,self.node_id,port,remote_node_id,
                         remote_port, "neighbor is not member of same pod"))
                     valid_oif = False
@@ -564,7 +564,7 @@ def build_nodes():
             attr = obj[list(obj.keys())[0]]["attributes"]
             for a in ["role", "id", "podId", "state", "name", "address"]:
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
             if attr["role"] != "leaf" and attr["role"] != "spine":
@@ -593,7 +593,7 @@ def build_nodes():
             attr = obj[list(obj.keys())[0]]["attributes"]
             for a in ["name","dn","sysId"]:
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
             if attr["name"] != "overlay-1":
@@ -602,12 +602,12 @@ def build_nodes():
                 continue
             r1 = reg_node.search(attr["dn"])
             if r1 is None:
-                logger.warn("failed to parse dn for object: %s" % attr["dn"])
+                logger.warning("failed to parse dn for object: %s" % attr["dn"])
                 continue
             node_id = r1.group("node")
             pod_id = r1.group("pod")
             if node_id not in nodes:
-                logger.warn("skipping unknown node: %s, system-id:%s" % (
+                logger.warning("skipping unknown node: %s, system-id:%s" % (
                     node_id, attr["sysId"]))
                 continue
             nodes[node_id].system_id = attr["sysId"]
@@ -615,7 +615,7 @@ def build_nodes():
     # verify we have the system_id for all nodes, if not then we hit an issue
     for node_id in nodes:
         if nodes[node_id].system_id is None:
-            logger.warn("system ID not found for node %s" % nodes[node_id])
+            logger.warning("system ID not found for node %s" % nodes[node_id])
             return None
 
     # add l3ext interfaces for spines
@@ -630,7 +630,7 @@ def build_nodes():
             attr = obj[list(obj.keys())[0]]["attributes"]
             for a in ["dn", "encap", "addr", "tDn"]:
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
                 r1 = reg_port.search(attr["tDn"])
@@ -640,7 +640,7 @@ def build_nodes():
             node_id = r1.group("node")
             local_port = r1.group("port")
             if node_id not in nodes:
-                logger.warn("skipping unknown node: %s" % node_id)
+                logger.warning("skipping unknown node: %s" % node_id)
                 continue
             nodes[node_id].add_external_interface(local_port)
 
@@ -657,18 +657,18 @@ def build_nodes():
             attr = obj[list(obj.keys())[0]]["attributes"]
             for a in ["dn", "sysDesc", "sysName", "portIdV"]: 
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
             r1 = reg_port.search(attr["dn"])
             if r1 is None:  
-                logger.warn("failed to parse dn for object: %s" % attr["dn"])
+                logger.warning("failed to parse dn for object: %s" % attr["dn"])
                 continue
             local_node_id = r1.group("node")
             local_pod_id = r1.group("pod")
             local_port = r1.group("port")
             if local_node_id not in nodes:
-                logger.warn("skipping unknown node: %s" % local_node_id)
+                logger.warning("skipping unknown node: %s" % local_node_id)
                 continue
             nodes[local_node_id].add_lldp_neighbor_info(local_port, 
                                                             LldpAdjEp(attr))
@@ -688,14 +688,14 @@ def build_nodes():
             remote_pod_id = r2.group("pod")
             remote_port = r3.group("port")
             if remote_pod_id != local_pod_id:
-                logger.warn("skipping connection local %s to remote %s" % (
+                logger.warning("skipping connection local %s to remote %s" % (
                     "pod-%s:node-%s:if-%s" % (local_pod_id, local_node_id,
                         local_port),
                     "pod-%s:node-%s:if-%s" % (remote_pod_id, remote_node_id,
                         remote_port)))
                 continue
             if remote_node_id not in nodes:
-                logger.warn("skipping unknown pod-%s:node-%s:if-%s" % (
+                logger.warning("skipping unknown pod-%s:node-%s:if-%s" % (
                     remote_pod_id, remote_node_id, remote_port))
                 continue 
             logger.debug("neighbor local %s to remote %s" % (
@@ -727,7 +727,7 @@ def build_nodes():
                 local_node.add_lldp_neighbor(local_port, lldp_adj)
                 logger.debug("added sideB: %s" % lldp_adj)
             else:
-                logger.warn("unexpected duplicate adjacency for %s and %s" % (
+                logger.warning("unexpected duplicate adjacency for %s and %s" % (
                     local_lldp_adj, remote_lldp_adj))
 
     # walk through each lldp adj and ensure each lldp adj is complete
@@ -751,17 +751,17 @@ def build_nodes():
             attr = obj[list(obj.keys())[0]]["attributes"]
             for a in ["dn", "sysId", "operSt"]:
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
             r1 = reg_isis_port.search(attr["dn"])
             if r1 is None:  
-                logger.warn("failed to parse dn for object: %s" % attr["dn"])
+                logger.warning("failed to parse dn for object: %s" % attr["dn"])
                 continue
             local_node_id = r1.group("node")
             local_port = r1.group("port")
             if local_node_id not in nodes:
-                logger.warn("skipping unknown node: %s, object:%s" % (
+                logger.warning("skipping unknown node: %s, object:%s" % (
                     local_node_id, pretty_print(attr)))
                 continue
             local_node = nodes[local_node_id]
@@ -770,7 +770,7 @@ def build_nodes():
                     local_node, local_port, attr["operSt"]))
                 continue
             if local_port not in local_node.lldp_adj:
-                logger.warn("skipping isisAdj on %s port %s, no lldp adj\n%s"%(
+                logger.warning("skipping isisAdj on %s port %s, no lldp adj\n%s"%(
                     local_node,local_port, attr))
                 continue
             lldp_adj = local_node.lldp_adj[local_port]
@@ -789,7 +789,7 @@ def build_nodes():
             # we have local node and port along with remote node and port from
             # lldp, ensure remote system-id matches sysId in isisAdjEp
             if attr["sysId"] != remote_node.system_id:
-                logger.warn("sysId(%s) doesn't match lldp sysId(%s) from %s" % (
+                logger.warning("sysId(%s) doesn't match lldp sysId(%s) from %s" % (
                     attr["sysId"], remote_node.system_id, lldp_adj))
                 continue
 
@@ -815,7 +815,7 @@ def build_nodes():
                 local_node.add_isis_neighbor(local_port, isis_adj)
                 logger.debug("added sideB: %s" % isis_adj)
             else:
-                logger.warn("unexpected duplicate adjacency for %s and %s" % (
+                logger.warning("unexpected duplicate adjacency for %s and %s" % (
                     local_isis_adj, remote_isis_adj))
 
     # walk through each isis adj and ensure each isis adj is complete
@@ -843,16 +843,16 @@ def build_ftags(nodes):
         if "attributes" in obj[list(obj.keys())[0]]:
             attr = obj[list(obj.keys())[0]]["attributes"]  
             if "dn" not in attr:
-                logger.warn("object missing dn: %s" % (a,pretty_print(obj)))
+                logger.warning("object missing dn: %s" % (a,pretty_print(obj)))
                 continue
             r1 = tree_reg.search(attr["dn"])
             if r1 is None:
-                logger.warn("failed to parse dn for object: %s" % attr["dn"])
+                logger.warning("failed to parse dn for object: %s" % attr["dn"])
                 continue
             node_id = r1.group("node")
             tree_id = r1.group("tree")
             if node_id not in nodes:
-                logger.warn("skipping unknown node: %s, object:%s" % (
+                logger.warning("skipping unknown node: %s, object:%s" % (
                     node_id, pretty_print(attr)))
                 continue
             node = nodes[node_id]
@@ -860,7 +860,7 @@ def build_ftags(nodes):
             if tree_id not in roots[node.pod_id]:
                 roots[node.pod_id][tree_id] = node_id
             elif node_id != roots[node.pod_id][tree_id]:
-                logger.warn("duplicate root detected (%s!=%s tree %s)" % (
+                logger.warning("duplicate root detected (%s!=%s tree %s)" % (
                     node_id, roots[node.pod_id][tree_id], tree_id))
                 continue
 
@@ -875,18 +875,18 @@ def build_ftags(nodes):
             attr = obj[list(obj.keys())[0]]["attributes"]  
             for a in ["dn", "root", "rootPort", "operSt", "id"]:
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
             r1 = reg_node.search(attr["dn"])
             if r1 is None:
-                logger.warn("failed to parse dn for object: %s" % attr["dn"])
+                logger.warning("failed to parse dn for object: %s" % attr["dn"])
                 continue
             node_id = r1.group("node")
             pod_id = r1.group("pod")
             tree_id = attr["id"]
             if node_id not in nodes:
-                logger.warn("skipping unknown node: %s, object:%s" % (
+                logger.warning("skipping unknown node: %s, object:%s" % (
                     node_id, pretty_print(attr)))
                 continue
             node = nodes[node_id]
@@ -905,7 +905,7 @@ def build_ftags(nodes):
                 if pod_id not in roots: roots[pod_id]= {}
                 if tree_id not in roots[pod_id]: roots[pod_id][tree_id]=node_id
                 elif roots[pod_id][tree_id] != node_id:
-                    logger.warn("duplicate root detected (%s!=%s tree %s)"% (
+                    logger.warning("duplicate root detected (%s!=%s tree %s)"% (
                         node_id, roots[pod_id][tree_id], tree_id))
 
             node.add_ftag_root_port(tree_id, attr["rootPort"])
@@ -925,7 +925,7 @@ def build_ftags(nodes):
             attr = obj[list(obj.keys())[0]]["attributes"]  
             for a in ["dn", "oifList"]:
                 if a not in attr:
-                    logger.warn("object missing %s: %s" % (a, 
+                    logger.warning("object missing %s: %s" % (a, 
                         pretty_print(obj)))
                     continue
             r1 = reg_oif_list.search(attr["dn"])
@@ -936,7 +936,7 @@ def build_ftags(nodes):
             node_id = r1.group("node")
             tree_id = r1.group("tree")
             if node_id not in nodes:
-                logger.warn("skipping unknown node: %s, object:%s" % (
+                logger.warning("skipping unknown node: %s, object:%s" % (
                     node_id, pretty_print(attr)))
                 continue
             node = nodes[node_id]
@@ -1074,7 +1074,7 @@ def main(args):
                 continue
             # ensure this node is part of the pod we're checking
             if root_node.pod_id != pod_id:
-                logger.warn("skipping invalid pod %s on node %s for tree %s"%(
+                logger.warning("skipping invalid pod %s on node %s for tree %s"%(
                     pod_id, root_node, tree_id))
                 continue
             
