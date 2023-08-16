@@ -29,3 +29,7 @@ Run on a python3 environment. This script can be run to quickly instantiate APIC
 ## [Multicast Validator](https://github.com/datacenter/aci-tac-scripts/tree/main/multicast-validator)
 
 This cli-based tool automates verification and troubleshooting of many L3 multicast topologies in ACI. It is executed from the apic and gathers fabric-wide information about a multicast flow in order to determine if there are any problems to flag
+
+## [FTAG Viewer](https://github.com/datacenter/aci-tac-scripts/tree/main/FTAG%20Viewer)
+
+Official Fork of https://github.com/agccie/aci-ftag-viewer. This script builds and validates all forwarding trees (FTAG) within all on pods on a Cisco ACI fabric. Updated for Python3.
