@@ -52,7 +52,7 @@
 ```
 
 ## Defects: <a name="defects"></a>
->In the meantime the script checks the defects below :
+>The script examines the following defects:
 >* [CSCwe09535](https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwe09535) - TAC mode only.
 >* [CSCvt98738](https://bst.cloudapps.cisco.com/bugsearch/bug/CSCvt98738) - TAC mode only.
 >* [CSCvn13119](https://bst.cloudapps.cisco.com/bugsearch/bug/CSCvn13119) - TAC mode only.
