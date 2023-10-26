@@ -17,13 +17,12 @@
 
 ## Sherlock Campaign - Exceeded Data Storage Issue <a name="introduction"></a>
 
-> Sherlock is a TAC automation platform designed to offer immediate support to customers and facilitates interaction with TAC engineers.
 
-> Sherlock campaign is the nameming convention for predefined faults and direct support.
->
-> This campaign treats the faults "F1527", "F1528" and "F1529" on ACI with Sherlock interaction.
-> Those faults are related to the disk storage issue when there isn't enough free space.
+>Sherlock is a cutting-edge TAC automation platform created to provide real-time assistance to customers and simplify communication with TAC engineers.
 
+>The Sherlock campaign refers to a standardized system for identifying specific issues and providing direct support.
+
+>Within this campaign, the faults labeled "F1527," "F1528," and "F1529" are addressed with Sherlock's interactive features. These faults specifically pertain to disk storage problems that arise when there is insufficient free space.
 
 ## Mode: <a name="mode"></a>
 
