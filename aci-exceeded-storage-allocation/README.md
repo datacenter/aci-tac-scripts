@@ -39,13 +39,9 @@
 
 ### Tac Mode <a name="tac_mode"></a>
 - **Whom**          : TAC engineer.
-- **Functionality** : Provides the ability to select and delete files based on:
-  - Largest size.
-  - Oldest timestamp.
-  - Newest timestamp.
+- **Functionality** : Examines the defects.
 - **Interaction**   : Operates via the controller's SSH.
 - **Requirements**  : Root access is required.
-- **Alternatively** : TAC engineer have the flexibility to manually manage files using Linux CLI.
 - **Command**:
 ```bash
 /tmp/aci-exceeded-storage-allocation.sh --tac
