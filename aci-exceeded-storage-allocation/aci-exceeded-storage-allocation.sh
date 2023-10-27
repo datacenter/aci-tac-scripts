@@ -2,8 +2,8 @@
 
 # Author          : Jean-Michel Cuvelier <jecuveli@cisco.com>
 # Team            : TAC EMEA - ACI Team
-# Release verion  : 3.1.0
-# Last update     : 2023-10-26
+# Release verion  : 3.1.1
+# Last update     : 2023-10-27
 
 #====================#
 # Function - LOGGING #
@@ -1346,6 +1346,7 @@ CSCwe09535() {
 
       # Store results about the defect.
       if [ "${TARGET_COUNT}" -gt 0 ] ; then
+        DEFECT_HIT="CSCwe09535"
         log "info" "process_defect_on_directory: Defect CSCwe09535 detected in directory ${TARGET_DIR}."
         STORE_DEFECT_CSCwe09535[${STORE_DEFECT_CSCwe09535_CPT}]="${REMOTE_NODE_ID}:CSCwe09535:hit"
       else
@@ -1386,6 +1387,7 @@ CSCwe09535() {
 
       else
         log "info" "CSCwe09535: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+        display "CSCwe09535 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
       fi
 
     else
@@ -1507,6 +1509,8 @@ CSCvt98738(){
 
         fi
 
+        DEFECT_HIT="CSCvt98738"
+
         STORE_DEFECT_CSCvt98738[${STORE_DEFECT_CSCvt98738_CPT}]="${REMOTE_NODE_ID}:CSCvt98738:hit"
 
         BOOLEAN_SLEEP="true"
@@ -1544,6 +1548,7 @@ CSCvt98738(){
         unset DIRECTORIES DIRECTORY
       else
         log "info" "CSCvt98738: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+        display "CSCvt98738 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
       fi
     else
       log "info" "CSCvt98738: ${REMOTE_NODE_ID}:CSCvt98738:already tested."
@@ -1619,6 +1624,8 @@ CSCvn13119() {
       if [ "${TARGET_COUNT}" -gt 0 ] ; then
         display "CSCvn13119 Hits and fixed"
 
+        DEFECT_HIT="CSCvn13119"
+
         STORE_DEFECT_CSCvn13119[${STORE_DEFECT_CSCvn13119_CPT}]="${REMOTE_NODE_ID}:CSCvn13119:hit"
 
         BOOLEAN_SLEEP="true"
@@ -1650,6 +1657,7 @@ CSCvn13119() {
         process_defect_on_directory "/"
       else
         log "info" "CSCvn13119: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+        display "CSCvn13119 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
       fi
     else
       log "info" "CSCvn13119: ${REMOTE_NODE_ID}:CSCvn13119:already tested."
@@ -2371,7 +2379,8 @@ treat_fault() {
       local DEV_MOUNT=$(echo "${DN}" | egrep -o "\-f-\[[^]]+]" | sed -e "s#-f-\[\([^]][^]]*\)]#\1#g")
       local PATH_MOUNT=$(echo "${DN}" | egrep -o "p-\[[^]]+]" | sed -e "s#p-\[\([^]][^]]*\)]#\1#g")
 
-      # Address specific defects.
+      # Pool defects
+      DEFECT_HIT="false"
       if [ "${PATH_MOUNT}" == "/" ] || [ "${PATH_MOUNT}" == "/data2" ]   ; then
         CSCwe09535 "${PATH_MOUNT}"
       fi
@@ -2383,7 +2392,8 @@ treat_fault() {
       if [ "${PATH_MOUNT}" == "/" ] ; then
         CSCvn13119
       fi
-      
+
+          
       # Determine the executor of the script.
       if [ "${TAC_USER}" != true ] ; then
         log "info" "treat_fault: Operating in USER MODE."
@@ -2423,76 +2433,92 @@ treat_fault() {
         # Logging the mode of operation.
         log "info" "treat_fault: Operating in TAC MODE."
 
-        display "Directory usage for ${PATH_MOUNT}"
-        send_remote_command "df -h ${PATH_MOUNT}"
-        echo "${READ_VALUE}"
+        # Testing if a defect has been detected.
+        if [ "${DEFECT_HIT}" == "false" ] ; then
 
-        local FILE_COUNT
-        local OPTIONS
+          display "Directory usage for ${PATH_MOUNT}"
+          send_remote_command "df -h ${PATH_MOUNT}"
+          echo "${READ_VALUE}"
 
-        # Continuously prompt the user until they choose to exit.
-        while ! [ "${OPTIONS}" == "e" ] ; do
+          local FILE_COUNT
+          local OPTIONS
 
-          # Fetching the count of files in the specified path.
-          send_remote_command "find ${PATH_MOUNT} -type f 2> /dev/null | wc -l"
-          FILE_COUNT=$(echo "${READ_VALUE} - 1" | bc)
+          # Continuously prompt the user until they choose to exit.
+          while ! [ "${OPTIONS}" == "e" ] ; do
 
-          # Logging the number of files detected.
-          log "info" "treat_fault: Detected ${FILE_COUNT} files in ${PATH_MOUNT}."
+            # Fetching the count of files in the specified path.
+            send_remote_command "find ${PATH_MOUNT} -type f 2> /dev/null | wc -l"
+            FILE_COUNT=$(echo "${READ_VALUE} - 1" | bc)
 
-          # Displaying the count of files in the directory.
-          display "Number of files in ${PATH_MOUNT}"
-          echo -e "\n ==> In \"${PATH_MOUNT}\": ${FILE_COUNT} files detected.\n"
+            # Logging the number of files detected.
+            log "info" "treat_fault: Detected ${FILE_COUNT} files in ${PATH_MOUNT}."
 
-          # Presenting deletion options to the user.
-          echo -e "\nYou can choose from the following file deletion options:\n"
-          echo "   a) Delete the largest files."
-          echo "   b) Delete the oldest files."
-          echo "   c) Delete the newest files."
-          echo "   d) Manually select files for deletion."
-          echo "   e) Exit."
-          echo ""
+            # Displaying the count of files in the directory.
+            display "Number of files in ${PATH_MOUNT}"
+            echo -e "\n ==> In \"${PATH_MOUNT}\": ${FILE_COUNT} files detected.\n"
 
-          # Prompting the user for their preferred deletion criteria.
-          prompt_until_match_regex "Which deletion option do you prefer (a,b,c,d,e)? " "^[a-eA-E]$"
-          OPTIONS=${READ_VALUE}
+            # Presenting deletion options to the user.
+            echo -e "\nYou have the option to select from the following file processing choices.\n"
+            echo "   a) List ( optionnaly delete ) - the largest files."
+            echo "   b) List ( optionnaly delete ) - the oldest files."
+            echo "   c) List ( optionnaly delete ) - the newest files."
+            echo "   d) Manually select files for deletion."
+            echo "   e) Exit."
+            echo ""
 
-          # Switch-like construct to determine which operation to perform based on the user's choice.
-          case "${OPTIONS}" in
-            a)
-              # Option 'a': Handle the largest files.
-              # The function will fetch, display, and offer an option to delete the largest files in the given directory.
-              handle_largest_files_option "a" "${PATH_MOUNT}" "${DN}"
-              ;;
-            b)
-              # Option 'b': Handle the oldest files.
-              # This function will retrieve, show, and provide an option to delete the oldest files in the given directory.
-              handle_oldest_files_option "b" "${PATH_MOUNT}" "${DN}"
-              ;;
-            c)
-              # Option 'c': Handle the newest files.
-              # The function will gather, display, and propose an option to delete the newest files in the specified directory.
-              handle_newest_files_option "c" "${PATH_MOUNT}" "${DN}"
-              ;;
-            d)
-              # Option 'd': Handle the remote SSH.
-              ${SSH_REMOTE_COMMAND}
-              BOOLEAN_SLEEP="true"
-              ;;
-            e)
-              # Option 'e': Exit.
-              log "info" "treat_fault: Exit DN: ${DN}"
-              ;;
-            *)
-              # Logs an error indicating an unsupported option has been provided.
-              log "err" "treat_fault: Invalid option ${OPTIONS} provided."
-              ;;
-          esac
+            # Prompting the user for their preferred deletion criteria.
+            prompt_until_match_regex "Which deletion option do you prefer (a,b,c,d,e)? " "^[a-eA-E]$"
+            OPTIONS=${READ_VALUE}
 
-        done
+            # Switch-like construct to determine which operation to perform based on the user's choice.
+            case "${OPTIONS}" in
+              a)
+                # Option 'a': Handle the largest files.
+                # The function will fetch, display, and offer an option to delete the largest files in the given directory.
+                handle_largest_files_option "a" "${PATH_MOUNT}" "${DN}"
+                ;;
+              b)
+                # Option 'b': Handle the oldest files.
+                # This function will retrieve, show, and provide an option to delete the oldest files in the given directory.
+                handle_oldest_files_option "b" "${PATH_MOUNT}" "${DN}"
+                ;;
+              c)
+                # Option 'c': Handle the newest files.
+                # The function will gather, display, and propose an option to delete the newest files in the specified directory.
+                handle_newest_files_option "c" "${PATH_MOUNT}" "${DN}"
+                ;;
+              d)
+                # Option 'd': Handle the remote SSH.
+                ${SSH_REMOTE_COMMAND}
+                BOOLEAN_SLEEP="true"
+                ;;
+              e)
+                # Option 'e': Exit.
+                log "info" "treat_fault: Exit DN: ${DN}"
+                ;;
+              *)
+                # Logs an error indicating an unsupported option has been provided.
+                log "err" "treat_fault: Invalid option ${OPTIONS} provided."
+                ;;
+            esac
 
+          done
+
+        
+        elif [ "${DEFECT_HIT}" == "CSCwe09535" ] ; then
+          
+          display "The defect CSCwe09535 has been detected, follow the instructions above during a maintenance window."
+        
+        elif [ "${DEFECT_HIT}" == "CSCvt98738" ] ; then
+
+          display "The defect CSCvt98738 has been detected."
+
+        elif [ "${DEFECT_HIT}" == "CSCvn13119" ] ; then
+
+          display "The defect CSCvt98738 has been detected."
+
+        fi
       fi
-
     else
 
       # Log that the fault has been cleared.
