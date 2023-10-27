@@ -2,7 +2,7 @@
 
 # Author          : Jean-Michel Cuvelier <jecuveli@cisco.com>
 # Team            : TAC EMEA - ACI Team
-# Release verion  : 3.1.1
+# Release verion  : 4.0.0
 # Last update     : 2023-10-27
 
 #====================#
@@ -113,8 +113,6 @@ bytes_converter() {
   # Unset local variables
   unset INPUT_VALUE VALUE UNIT BYTES KB MB GB
 }
-
-
 
 
 #=========================#
@@ -436,7 +434,6 @@ prompt_until_match_regex() {
 
     # For clarity add a newline before the message.
     echo ""
-
 
     # Continuously prompt the user until the input matches the provided regex
     while [ $(echo "${READ_VALUE}" | egrep "${REGEX}" | wc -l) -eq 0 ] ; do
@@ -866,7 +863,6 @@ reset_remote_node_details() {
 
 }
 
-
 #=================#
 # FUNCTIONS - SSH #
 #=================#
@@ -1291,7 +1287,6 @@ STORE_DEFECT_CSCwe09535_CPT=0
 STORE_DEFECT_CSCwe09535=()
 CSCwe09535() {
 
-
   # Local variable for the passed directory path
   local PATH_MOUNT="$1"
 
@@ -1679,297 +1674,6 @@ CSCvn13119() {
 
 # Used to allow the controller time to clear the fault
 BOOLEAN_SLEEP="false"
-
-# Handle the action of displaying and optionally deleting the largest files.
-# The function allows users to view a list of the largest files and then provides
-# an option to delete specific ones from the displayed list.
-# 
-# Args:
-#   $1 (OPTIONS): User's operation choice, expected to be "a" for this function.
-#   $2 (PATH_MOUNT): Directory from which the largest files will be fetched and potentially deleted.
-#   $3 (DN): Distinguished Name for the fault. Used for logging purposes.
-handle_largest_files_option() {
-  local OPTIONS="$1"
-  local PATH_MOUNT="$2"
-  local DN="$3"
-  local SPACE_DELIMITER="_______________________-_______________________"
-
-  log "info" "handle_largest_files_option: Entered the function."
-
-  # Validate the selected option to ensure it's the right function for the task.
-  if [ "${OPTIONS}" != "a" ] ; then
-    log "err" "handle_largest_files_option: Incorrect option provided. Expected 'a', received ${OPTIONS}."
-    exit_due_to_code_issue
-  fi
-
-  # Prompt the user to specify the number of largest files they'd like to see.
-  prompt_until_match_or_default "How many of the largest files would you like to see ? (default 20): " "^[0-9]+$" "20"
-  local COUNTER_FILE=${READ_VALUE}
-
-  # Execute a command remotely to identify and rank the largest files from the given directory.
-  # The files are then processed and displayed to the user.
-  send_remote_command "find ${PATH_MOUNT} -type f | xargs -n 1 -I {} du {} | sort -n | tail -n ${COUNTER_FILE} | sort -rn | sed -e \"s#^[0-9][0-9]* *##g\" | xargs -I {} -n 1 du -h {} | sed -e \"s#\t#${SPACE_DELIMITER}#g\"" 
-  local BIGGER_FILES=${READ_VALUE}
-
-  # Display the ranked list of files to the user.
-  display "The ${COUNTER_FILE} largest files:"
-
-  local CPT=0
-  local FILES=()
-  # Process each line from the list, extracting relevant file details.
-  for LINE in $(echo "${BIGGER_FILES}"); do
-    local FILE=$(echo "$LINE" | sed -e "s#${SPACE_DELIMITER}# #g")
-    CPT=$((CPT+1))
-    FILES[${CPT}]=$(echo "${FILE}" | awk '{print $2}')
-    echo -e "${CPT})\t${FILE// / ==> }"
-  done
-
-  # If any files were displayed, prompt the user if they'd like to delete any.
-  if [ "${CPT}" -gt 0 ] ; then
-    prompt_for_yes_no "Would you like to delete some of these files?"
-    if [ "${BOOLEAN}" == "y" ] ; then
-      # Request user to specify which files they want to delete.
-      prompt_select_from_range "Specify the files to delete (e.g., 2,3-5): " "1" "${CPT}"
-      local DELETE_FILES=${READ_VALUE}
-      
-      # For each file selected for deletion, seek user confirmation and then delete.
-      for DELETE_FILE in $(echo "${DELETE_FILES}"); do
-        if [ "${DELETE_FILE}" -gt 0 ] && [ "${DELETE_FILE}" -le "${COUNTER_FILE}" ] ; then
-          prompt_for_yes_no "Please confirm the deletion of file: ${FILES[${DELETE_FILE}]}"
-          if [ "${BOOLEAN}" == "y" ] ; then
-            send_remote_command "rm -f ${FILES[${DELETE_FILE}]}"
-
-            # Test if the file has been deleted
-            send_remote_command "ls ${FILES[${DELETE_FILE}]} 2> /dev/null | wc -l"
-            if [ "${READ_VALUE}" -gt 0 ] ; then
-              
-              log "err" "handle_largest_files_option: File ${FILES[${DELETE_FILE}]} has not been deleted."
-              display "File ${FILES[${DELETE_FILE}]} has not been deleted."
-            
-            else
-
-              BOOLEAN_SLEEP="true"
-              log "info" "handle_largest_files_option:File ${FILES[${DELETE_FILE}]} has been deleted."
-              display "File ${FILES[${DELETE_FILE}]} has been deleted."
-              
-              # Note the fault and the corresponding deleted file.
-              RECORD_FILES[${RECORD_FILES_CPT}]="${DN}:${FILES[${DELETE_FILE}]}"
-              RECORD_FILES_CPT=$((RECORD_FILES_CPT+1))            
-
-            fi
-
-          fi
-        fi
-      done
-    fi
-  fi
-
-  # Clean up local variables.
-  unset COUNTER_FILE BIGGER_FILES CPT FILES DELETE_FILES SPACE_DELIMITER
-}
-
-
-# Handle displaying and optionally deleting the oldest files from a directory.
-# The function allows users to view a list of oldest files and then provides
-# an option to delete specific ones from the displayed list.
-#
-# Args:
-#   $1 (OPTIONS): User's operation choice (should be "b" for this function).
-#   $2 (PATH_MOUNT): Directory where files are to be checked.
-#   $3 (DN): Distinguished Name for the fault (used for logging).
-handle_oldest_files_option() {
-  local OPTIONS="$1"
-  local PATH_MOUNT="$2"
-  local DN="$3"
-  local SPACE_DELIMITER="_______________________-_______________________"
-
-  # Confirm that the user has selected the correct option.
-  if [ "${OPTIONS}" != "b" ] ; then
-    log "err" "handle_oldest_files_option: Incorrect option provided. Expected 'a', received ${OPTIONS}."
-    exit_due_to_code_issue
-  fi
-
-  log "info" "handle_oldest_files_option: Preparing to view and potentially delete oldest files."
-
-  # Prompt the user to specify the number of oldest files they'd like to see.
-  prompt_until_match_or_default "How many of the oldest files would you like to display ? (default 20): " "^[0-9]+$" "20"
-  local COUNTER_FILE=${READ_VALUE}
-
-  # Use the find command to retrieve and sort files by age.
-  # The files are then processed and displayed to the user.
-  send_remote_command "find ${PATH_MOUNT} -type f -printf '%T+ %p\n' | sort -n | head -n ${COUNTER_FILE} | sed -e \"s#  *#${SPACE_DELIMITER}#g\""
-  local OLDER_FILES=${READ_VALUE}
-
-  display "The ${COUNTER_FILE} oldest files in the directory ${PATH_MOUNT}:"
-  echo ""
-
-  local CPT=0
-  local FILES=()
-
-  # Extract the older files
-  local FILE_SIZE=$(echo "$OLDER_FILES" | awk -F"${SPACE_DELIMITER}" '{print $2}' | tr '\n' ' ')
-  
-  # Execute a remote command to determine the human-readable size of the older files.
-  send_remote_command "du -h ${FILE_SIZE} | awk '{print \$1}'"  
-  FILE_SIZE=$READ_VALUE
-
-  # Process each line from the older files list.
-  for LINE in $(echo "${OLDER_FILES}"); do
-    # Extract the file's timestamp and convert it to a readable format.
-    local DATE=$(echo "$LINE" | awk -F"${SPACE_DELIMITER}" '{print $1}' | tr "+" "T" | xargs -I {} date --date {} +"%Yy-%mm-%dd %Hh:%Mmin")
-    # Extract the file path.
-    local FILE=$(echo "$LINE" | awk -F"${SPACE_DELIMITER}" '{print $2}')
-    CPT=$((CPT+1))
-    FILES[${CPT}]="${FILE}"
-
-    echo -e "${CPT})\t $(echo "${FILE_SIZE}" | sed -n "${CPT},${CPT}p")\t-\t${DATE}\t\t===>\t${FILE}"
-  done
-
-  unset FILE_SIZE
-
-  # If any old files were found, offer the option to delete some of them.
-  if [ "${CPT}" -gt 0 ] ; then
-    prompt_for_yes_no "Would you like to delete some of these files?"
-    if [ "${BOOLEAN}" == "y" ] ; then
-      # Ask user to specify which files they want to delete.
-      prompt_select_from_range "Specify the files to delete (e.g., 2,3-5): " "1" "${CPT}"
-      local DELETE_FILES=${READ_VALUE}
-      for DELETE_FILE in $(echo "${DELETE_FILES}"); do
-        if [ "${DELETE_FILE}" -gt 0 ] && [ "${DELETE_FILE}" -le "${COUNTER_FILE}" ] ; then
-          # Seek confirmation before actually deleting the file.
-          prompt_for_yes_no "Please confirm the deletion of file: ${FILES[${DELETE_FILE}]}"
-          if [ "${BOOLEAN}" == "y" ] ; then
-            # Execute the file deletion.
-            send_remote_command "rm -f ${FILES[${DELETE_FILE}]}"
-
-            # Test if the file has been deleted
-            send_remote_command "ls ${FILES[${DELETE_FILE}]} 2> /dev/null | wc -l"
-            if [ "${READ_VALUE}" -gt 0 ] ; then
-              
-              log "err" "handle_oldest_files_option: File ${FILES[${DELETE_FILE}]} has not been deleted."
-              display "File ${FILES[${DELETE_FILE}]} has not been deleted."
-            
-            else
-
-              BOOLEAN_SLEEP="true"
-              log "info" "handle_oldest_files_option:File ${FILES[${DELETE_FILE}]} has been deleted."
-              display "File ${FILES[${DELETE_FILE}]} has been deleted."
-              
-              # Note the fault and the corresponding deleted file.
-              RECORD_FILES[${RECORD_FILES_CPT}]="${DN}:${FILES[${DELETE_FILE}]}"
-              RECORD_FILES_CPT=$((RECORD_FILES_CPT+1))            
-
-            fi
-          fi
-        fi
-      done
-    fi
-  fi
-
-  # Clean up local variables.
-  unset OPTIONS PATH_MOUNT DN COUNTER_FILE OLDER_FILES CPT FILES DATE FILE DELETE_FILES DELETE_FILE SPACE_DELIMITER
-}
-
-# Handle displaying and optionally deleting the newest files from a directory.
-# This function allows users to view a list of the newest files and then provides
-# an option to delete specific ones from the displayed list.
-#
-# Args:
-#   $1 (OPTIONS): User's operation choice (should be "c" for this function).
-#   $2 (PATH_MOUNT): Directory where files are to be checked.
-#   $3 (DN): Distinguished Name for the fault (used for logging).
-handle_newest_files_option() {
-  local OPTIONS="$1"
-  local PATH_MOUNT="$2"
-  local DN="$3"
-  local SPACE_DELIMITER="_______________________-_______________________"
-
-  log "info" "handle_newest_files_option: Entered."
-
-  # Validate that the user has selected the appropriate option.
-  if [ "${OPTIONS}" != "c" ] ; then
-    log "err" "handle_newest_files_option: Incorrect option provided. Exiting function."
-    exit_due_to_code_issue
-  fi
-
-  # Prompt user to specify the number of newest files they'd like to see.
-  prompt_until_match_or_default "How many file(s) would you like to see ? (default 20): " "^[0-9]+$" "20"
-  local COUNTER_FILE=${READ_VALUE}
-
-  # Use the find command to retrieve and sort files by age in descending order.
-  # The newest files are then processed and displayed to the user.
-  send_remote_command "find ${PATH_MOUNT} -type f -printf '%T+ %p\n' | sort -rn | head -n \"${COUNTER_FILE}\" | sed -e \"s#  *#${SPACE_DELIMITER}#g\" "
-  local NEWER_FILES=${READ_VALUE}
-
-  display "The ${COUNTER_FILE} newest files in the directory ${PATH_MOUNT}:"
-
-  local CPT=0
-  local FILES=()
-
-  # Extract the older files
-  local FILE_SIZE=$(echo "$NEWER_FILES" | awk -F"${SPACE_DELIMITER}" '{print $2}' | tr '\n' ' ')
-  
-  # Execute a remote command to determine the human-readable size of the older files.
-  send_remote_command "du -h ${FILE_SIZE} | awk '{print \$1}'"  
-  FILE_SIZE=$READ_VALUE
-
-  # Process each file in the list.
-  for LINE in $(echo "${NEWER_FILES}"); do
-    # Extract the file's timestamp and format it for readability.
-    local DATE=$(echo "$LINE" | sed -e "s#${SPACE_DELIMITER}# #g" | awk '{print $1}' | tr "+" "T" | xargs -n 1 -I {} date --date {} +"%Yy-%mm-%dd %Hh:%Mmin")
-    # Extract the file path.
-    local FILE=$(echo "$LINE" | sed -e "s#${SPACE_DELIMITER}# #g" | awk '{print $2}')
-    CPT=$((CPT+1))
-    FILES[${CPT}]="${FILE}"
-
-    # Display the file's timestamp and path to the user with the file size.
-    echo -e "${CPT})\t $(echo "${FILE_SIZE}" | sed -n "${CPT},${CPT}p")\t-\t${DATE}\t\t===>\t${FILE}"
-    
-  done
-  unset FILE_SIZE
-
-  # If any files were found, provide the option to delete some.
-  if [ "${CPT}" -gt 0 ] ; then
-    prompt_for_yes_no "Would you like to delete some of these files?"
-    if [ "${BOOLEAN}" == "y" ] ; then
-      # Prompt the user to specify which files they'd like to delete.
-      prompt_select_from_range "Specify the files to delete (e.g., 2,3-5): " "1" "${CPT}"
-      local DELETE_FILES=${READ_VALUE}
-
-      # For each selected file, seek user confirmation and then delete it.
-      for DELETE_FILE in $(echo "${DELETE_FILES}"); do
-        if [ "${DELETE_FILE}" -gt 0 ] && [ "${DELETE_FILE}" -le "${COUNTER_FILE}" ] ; then
-          prompt_for_yes_no "Please confirm the deletion of file: ${FILES[${DELETE_FILE}]}"
-          if [ "${BOOLEAN}" == "y" ] ; then
-            send_remote_command "rm -f ${FILES[${DELETE_FILE}]}"
-
-            # Test if the file has been deleted
-            send_remote_command "ls ${FILES[${DELETE_FILE}]} 2> /dev/null | wc -l"
-            if [ "${READ_VALUE}" -gt 0 ] ; then
-              
-              log "err" "handle_newest_files_option: File ${FILES[${DELETE_FILE}]} has not been deleted."
-              display "File ${FILES[${DELETE_FILE}]} has not been deleted."
-            
-            else
-
-              BOOLEAN_SLEEP="true"
-              log "info" "handle_newest_files_option:File ${FILES[${DELETE_FILE}]} has been deleted."
-              display "File ${FILES[${DELETE_FILE}]} has been deleted."
-              
-              # Note the fault and the corresponding deleted file.
-              RECORD_FILES[${RECORD_FILES_CPT}]="${DN}:${FILES[${DELETE_FILE}]}"
-              RECORD_FILES_CPT=$((RECORD_FILES_CPT+1))
-            fi    
-          fi
-        fi
-      done
-    fi
-  fi
-
-  # Clean up local variables.
-  unset OPTIONS PATH_MOUNT DN COUNTER_FILE NEWER_FILES CPT FILES DATE FILE DELETE_FILES DELETE_FILE SPACE_DELIMITER
-}
-
 
 # handle_firmware_path()
 # This function handles operations related to the /firmware path on an ACI device.
@@ -2392,7 +2096,6 @@ treat_fault() {
       if [ "${PATH_MOUNT}" == "/" ] ; then
         CSCvn13119
       fi
-
           
       # Determine the executor of the script.
       if [ "${TAC_USER}" != true ] ; then
@@ -2428,97 +2131,8 @@ treat_fault() {
 
         fi
 
-      else
-
-        # Logging the mode of operation.
-        log "info" "treat_fault: Operating in TAC MODE."
-
-        # Testing if a defect has been detected.
-        if [ "${DEFECT_HIT}" == "false" ] ; then
-
-          display "Directory usage for ${PATH_MOUNT}"
-          send_remote_command "df -h ${PATH_MOUNT}"
-          echo "${READ_VALUE}"
-
-          local FILE_COUNT
-          local OPTIONS
-
-          # Continuously prompt the user until they choose to exit.
-          while ! [ "${OPTIONS}" == "e" ] ; do
-
-            # Fetching the count of files in the specified path.
-            send_remote_command "find ${PATH_MOUNT} -type f 2> /dev/null | wc -l"
-            FILE_COUNT=$(echo "${READ_VALUE} - 1" | bc)
-
-            # Logging the number of files detected.
-            log "info" "treat_fault: Detected ${FILE_COUNT} files in ${PATH_MOUNT}."
-
-            # Displaying the count of files in the directory.
-            display "Number of files in ${PATH_MOUNT}"
-            echo -e "\n ==> In \"${PATH_MOUNT}\": ${FILE_COUNT} files detected.\n"
-
-            # Presenting deletion options to the user.
-            echo -e "\nYou have the option to select from the following file processing choices.\n"
-            echo "   a) List ( optionnaly delete ) - the largest files."
-            echo "   b) List ( optionnaly delete ) - the oldest files."
-            echo "   c) List ( optionnaly delete ) - the newest files."
-            echo "   d) Manually select files for deletion."
-            echo "   e) Exit."
-            echo ""
-
-            # Prompting the user for their preferred deletion criteria.
-            prompt_until_match_regex "Which deletion option do you prefer (a,b,c,d,e)? " "^[a-eA-E]$"
-            OPTIONS=${READ_VALUE}
-
-            # Switch-like construct to determine which operation to perform based on the user's choice.
-            case "${OPTIONS}" in
-              a)
-                # Option 'a': Handle the largest files.
-                # The function will fetch, display, and offer an option to delete the largest files in the given directory.
-                handle_largest_files_option "a" "${PATH_MOUNT}" "${DN}"
-                ;;
-              b)
-                # Option 'b': Handle the oldest files.
-                # This function will retrieve, show, and provide an option to delete the oldest files in the given directory.
-                handle_oldest_files_option "b" "${PATH_MOUNT}" "${DN}"
-                ;;
-              c)
-                # Option 'c': Handle the newest files.
-                # The function will gather, display, and propose an option to delete the newest files in the specified directory.
-                handle_newest_files_option "c" "${PATH_MOUNT}" "${DN}"
-                ;;
-              d)
-                # Option 'd': Handle the remote SSH.
-                ${SSH_REMOTE_COMMAND}
-                BOOLEAN_SLEEP="true"
-                ;;
-              e)
-                # Option 'e': Exit.
-                log "info" "treat_fault: Exit DN: ${DN}"
-                ;;
-              *)
-                # Logs an error indicating an unsupported option has been provided.
-                log "err" "treat_fault: Invalid option ${OPTIONS} provided."
-                ;;
-            esac
-
-          done
-
-        
-        elif [ "${DEFECT_HIT}" == "CSCwe09535" ] ; then
-          
-          display "The defect CSCwe09535 has been detected, follow the instructions above during a maintenance window."
-        
-        elif [ "${DEFECT_HIT}" == "CSCvt98738" ] ; then
-
-          display "The defect CSCvt98738 has been detected."
-
-        elif [ "${DEFECT_HIT}" == "CSCvn13119" ] ; then
-
-          display "The defect CSCvt98738 has been detected."
-
-        fi
       fi
+      
     else
 
       # Log that the fault has been cleared.
