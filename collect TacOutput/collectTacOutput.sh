@@ -76,6 +76,7 @@ cat << 'EOF'
         6. epRecord
         7. healthRecord
         8. healthInst *collected unfiltered
+        9. eqptFlash *collected unfiltered
 EOF
     echo ""
     echo "d:    destination directory for output file."
@@ -103,7 +104,7 @@ while getopts "$optspec" optchar; do
     o)
         CMD=$OPTARG
             if [[ $CMD == "all" ]]; then
-                CMD="1,2,3,4,5,6,7,8"
+                CMD="1,2,3,4,5,6,7,8,9"
             fi            
         echo $CMD | sed 's/,/\n/g' > /tmp/args.txt
         ;;
@@ -144,6 +145,7 @@ cat << 'EOF' > /tmp/objects.txt
 6. epRecord
 7. healthRecord
 8. healthInst *collected unfiltered
+9. eqptFlash *collected unfiltered
 EOF
 
 if [[ $destDir == "" ]]; then
@@ -201,7 +203,7 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
             log "Selection $line was not valid"
         else
             record=`egrep "^$line\." /tmp/objects.txt | awk -F " " '{print $2}'`
-                if [ "$record" == 'faultInst' ] || [ "$record" == 'healthInst' ] || [ "$record" == 'aaaModLR' ]; then
+                if [ "$record" == 'faultInst' ] || [ "$record" == 'healthInst' ] || [ "$record" == 'aaaModLR' ] || [ "$record" == 'eqptFlash' ]; then
                     if [[ $record == "healthInst" ]]; then
                             sortAtt=updTs
                             SDATE="2010-12-15T00:00:00"
@@ -210,6 +212,12 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
                     fi
                     if [[ $record == "faultInst" ]] || [[ $record == "aaaModLR" ]]; then
                             sortAtt=created
+                            SDATE="2010-12-15T00:00:00"
+                            EDATE="2050-12-15T00:00:00"
+                            getTacRecord
+                    fi
+                    if [[ $record == "eqptFlash" ]]; then
+                            sortAtt=modTs
                             SDATE="2010-12-15T00:00:00"
                             EDATE="2050-12-15T00:00:00"
                             getTacRecord
