@@ -25,36 +25,67 @@
 #   2. MESSAGE: The message to be logged.
 #
 # Note: root access is needed to see the logs in : /var/log/messages
-log() {
 
-  # Check if at least a MESSAGE is provided
-  if [ "$#" -gt 0 ] ; then
-    
-    # Default severity level to INFO if not provided.
-    if [ "$#" -gt 1 ] ; then
-      local SEVERITY="${1}"
-      local MESSAGE="$2"
-    else
-      local SEVERITY="info"
-      local MESSAGE="$1"
+
+set -f -o pipefail
+
+verbose=0
+report=0
+
+# Z="\e[1A\e[0K"
+
+log(){
+
+    local line=""
+    local ts
+    ts=$(date '+%Y-%m-%dT%H:%M:%S')
+
+    if [ "$#" -gt 0 ] ; then
+        if [ "$#" -gt 1 ] ; then
+
+            case $1 in
+                "err")
+                    # bold red
+                    line="\033[1;\033[31m${2}\033[0m"
+                ;;
+                "alert")
+                    # bold yellow
+                    line="\033[1;\033[33m${2}\033[0m"
+                ;;
+                "info")
+                    # bold blue
+                    line="\033[1;\033[34m${2}\033[0m"
+                ;;
+                "success")
+                    # bold green
+                    line="\033[1;\033[32m${2}\033[0m"
+                ;;         
+                "trace")
+                    if [ $verbose == 1 ] ; then line="${2}" ; fi
+                ;;
+                *)
+                    line="$2"
+                ;;
+            esac
+        else
+            line="$1"
+        fi
+
+        if [ ! -z "$line" ]; then
+            echo -e "$line"
+        fi
     fi
 
-    # logger is only available on the controllers
-    if [ "${LOCAL_NODE_TYPE}" == "controller" ] ; then
-
-      # Get the current timestamp in the format 'YYYY-MM-DDTHH:MM:SS'
-      local TIMESTAMP=$(date '+%Y-%m-%dT%H:%M:%S')
-
-      # Logging to system log using the logger command within user facility
-      logger -p "user.${SEVERITY}" -t "$0" "${TIMESTAMP}||${SEVERITY} ==> ${MESSAGE}"
-
-    fi
-
-    # Clean up local variables
-    unset SEVERITY MESSAGE TIMESTAMP    
-
-  fi
 }
+
+title(){ log "\n\e[1;44;1;30m $1 \e[0m\n" ; }
+subtitle(){ log "→ $1"; }
+err(){ log "[x] $1" | pr -to2 ; }
+info(){ log "[i] $1" | pr -to2; }
+alert(){ log "alert" "[!] $1" | pr -to2 ; }
+success(){ log "success" "[√] $1" | pr -to2 ; }
+trace(){ log "trace" "$1"; }
+debug(){ log "debug" "$1"; }
 
 #=====================#
 # Functions - commons #
@@ -67,7 +98,7 @@ log() {
 bytes_converter() {
   # Ensure an input is provided
   if [ -z "$1" ]; then
-    log "error" "No argument provided to bytes_converter function."
+    trace "No argument provided to bytes_converter function."
     exit_due_to_code_issue
   fi
 
@@ -91,7 +122,7 @@ bytes_converter() {
     MB) BYTES=$((VALUE*MB)) ;;
     GB) BYTES=$((VALUE*GB)) ;;
     *) 
-      log "error" "Unsupported unit: $UNIT. Supported units are bytes, KB, MB, and GB."
+      trace "Unsupported unit: $UNIT. Supported units are bytes, KB, MB, and GB."
       exit_due_to_code_issue 
       ;;
   esac
@@ -108,7 +139,7 @@ bytes_converter() {
   fi
 
   # Log the conversion result and output it
-  log "info" "Converted $INPUT_VALUE to $READ_VALUE"
+  trace "Converted $INPUT_VALUE to $READ_VALUE"
 
   # Unset local variables
   unset INPUT_VALUE VALUE UNIT BYTES KB MB GB
@@ -121,25 +152,8 @@ bytes_converter() {
 
 # This function interrupts the current script execution and request a new root password from the TAC user.
 exit_and_ask_root_password() {
-
-  # Display separation lines and spaces for clarity
-  echo -e "\n\n ====> \n\n"
-
-  # Inform the TAC user that root access is required
-  echo -e "  Root access is required to continue with the script."
-
   # Display the debug token
-  display "Please provide root access using the TOKEN: $(acidiag dbgtoken)"
-
-  echo -e "  Once the root password is provided, rerun the script using the following option:\n"
-
-  # Guide the user on how to run the script with the provided token in option
-  echo -e "${0} --token \"ROOT_PASSWORD\""
-
-  echo -e "\nThank you.\n----------"
-
-  echo -e "\n\n <==== \n\n"
-
+  info "Please provide root access using the TOKEN: $(acidiag dbgtoken)"
   exit 0
 
 }
@@ -151,11 +165,8 @@ exit_and_ask_root_password() {
 #
 exit_and_escalate_to_TAC_engineer() {
 
-  # Display separation lines and spaces for clarity
-  echo -e "\n\n ====> \n\n"
-
   # Inform the user that a TAC engineer is needed to continue
-  echo -e "  To continue with the script, a TAC engineer is required. Please reply to Sherlock Holmes at <noreply@cisco.com> with the following information in your email:\n"
+  echo -e "  To continue with the script, a TAC engineer is required. Please reply to Sherlock Holmes at <sherholm@cisco.com> with the following information in your email:\n"
 
   # Check if a custom message has been provided as an argument
   if [ "$#" -eq 1 ] ; then
@@ -175,11 +186,11 @@ exit_and_escalate_to_TAC_engineer() {
       MESSAGE="The faults are still remaining."
 
       # Display a custom message with details for Sherlock
-      display "Sherlock, please escalate the service request to a TAC engineer. MSG: ${MESSAGE}"
+      alert "Sherlock, please escalate the service request to a TAC engineer. MSG: ${MESSAGE}"
 
       # Display each extracted fault for better clarity
       for FAULT in ${FAULTS} ; do
-        display "${FAULT}"
+        info "${FAULT}"
       done
 
       # Clean up local fault variables
@@ -187,23 +198,15 @@ exit_and_escalate_to_TAC_engineer() {
 
     else
       # If the message doesn't match the specific format, display the custom message as-is
-      display "Sherlock, please escalate the service request to a TAC engineer. MSG: ${MESSAGE}"
+      info "Sherlock, please escalate the service request to a TAC engineer. MSG: ${MESSAGE}"
     fi
 
     # Clean up the message variable
     unset MESSAGE  
   else
     # If no custom message provided, display a default escalation message
-    display "Sherlock, please escalate the service request to a TAC engineer."
+    info "Sherlock, please escalate the service request to a TAC engineer."
   fi
-
-  # Notify the user about the escalation process
-  echo -e "  The service request will be escalated.\n"
-  echo -e "  Once the service request is picked up, a TAC engineer will contact you to continue with the script.\n"
-
-  echo -e "\nThank you.\n----------"
-
-  echo -e "\n\n <==== \n\n"
 
   # Exit the script 
   exit 0
@@ -214,21 +217,18 @@ exit_and_escalate_to_TAC_engineer() {
 # This function interrupts the current script execution and requires the credentials to be re-encoded.
 exit_password_expired_or_wrong(){
 
-  # Display separation lines for clarity
-  echo -e "\n\n ====> \n\n"
+
 
   # If TAC_USER mode is active, generate and provide a new token for the TAC engineer
   if [ "${TAC_USER}" == "true" ] ; then
-    display "Unable to connect to ${REMOTE_IP} (${REMOTE_HOSTNAME}). The password is either invalid or expired. New TOKEN: $(acidiag dbgtoken)."
+    alert "Unable to connect to ${REMOTE_IP} (${REMOTE_HOSTNAME}). The password is either invalid or expired. New TOKEN: $(acidiag dbgtoken)."
     
-    log "err" "exit_password_expired_or_wrong: Unable to connect due to invalid or expired password for user 'root' on ${REMOTE_IP} (${REMOTE_HOSTNAME})."
+    trace "exit_password_expired_or_wrong: Unable to connect due to invalid or expired password for user 'root' on ${REMOTE_IP} (${REMOTE_HOSTNAME})."
   else
-    display "Unable to connect to ${REMOTE_IP} (${REMOTE_HOSTNAME}). If you are using the option --pwd \"PASSWORD\", consider enclosing special characters in single quotes, e.g., --pwd '\$!'."
+    alert "Unable to connect to ${REMOTE_IP} (${REMOTE_HOSTNAME}). If you are using the option --pwd \"PASSWORD\", consider enclosing special characters in single quotes, e.g., --pwd '\$!'."
     
-    log "err" "exit_password_expired_or_wrong: Unable to connect due to password issues for user '${USER}' on ${REMOTE_IP} (${REMOTE_HOSTNAME})."
+    trace "exit_password_expired_or_wrong: Unable to connect due to password issues for user '${USER}' on ${REMOTE_IP} (${REMOTE_HOSTNAME})."
   fi
-
-  echo -e "\n\n <==== \n\n"
 
   # Exit the script 
   exit 0
@@ -247,70 +247,6 @@ exit_due_to_code_issue() {
 #==============================#
 # FUNCTIONS - INPUT AND OUTPUT #
 #==============================#
-
-# This function displays a message in a framed box.
-#
-# Arguments:
-#   MESSAGE: The message to be displayed inside the framed box.
-#
-display() {
-  # Check if exactly one argument (the message) is provided.
-  if [ $# -eq 1 ] ; then
-    
-    # Message
-    local MESSAGE="$1"
-
-    # Construct the frame string based on the calculated length.
-    local FRAME_BORDER="--"
-
-    # Add a dash to the frame string for each character in the MESSAGE.
-    for CPT in $(seq 0 $(echo "${MESSAGE}" | wc -c)) ; do
-      FRAME_BORDER="$FRAME_BORDER""-"
-    done
-
-    # Display the MESSAGE within the frame.
-    echo ""
-    echo " ${FRAME_BORDER}"
-    echo " | ${MESSAGE} |"
-    echo " ${FRAME_BORDER}"
-    echo ""
-
-    # Clean up local variables
-    unset MESSAGE FRAME_BORDER CPT   
-
-  fi
-}
-
-# This function displays a message in the same line.
-#
-# Arguments:
-#   $1 (MESSAGE) - The message to be printed on the same line.
-display_same_line(){
-  
-  # Check if exactly one argument (the message) is provided.
-  if [ $# -eq 1 ] ; then
-      
-      local MESSAGE="$1"
-  
-      local CLEAN_LINE=""
-      
-      # Construct a clean line with spaces of the same length as the message.
-      for CPT in $(seq 0 $(echo "${MESSAGE}" | wc -c)) ; do
-        CLEAN_LINE=$CLEAN_LINE" "
-      done
-  
-      # Overwrite the current line with spaces.
-      echo -ne "${CLEAN_LINE}\r"
-
-      # Display the new message.
-      printf "${MESSAGE}"
-
-      # Unset the local variables to free up resources.
-      unset MESSAGE CLEAN_LINE CPT   
-  
-  fi
-}
-
 # This function prompts the user to wait for a specified duration.
 #
 # Arguments:
@@ -344,13 +280,12 @@ waiting_timer() {
 
     # If TIMER remains 0, it means DURATION wasn't converted to seconds successfully
     if [ $TIMER -eq 0 ] ; then
-      log "err" "waiting_timer: Failed to convert DURATION '${DURATION}' to seconds."
+      trace "waiting_timer: Failed to convert DURATION '${DURATION}' to seconds."
       exit_due_to_code_issue
     fi
 
     # Display the provided message to the user
-    display "${MESSAGE}"
-    log "info" "waiting_timer: Started with MESSAGE: '${MESSAGE}' and TIMER: '${TIMER}' seconds."
+    trace "waiting_timer: Started with MESSAGE: '${MESSAGE}' and TIMER: '${TIMER}' seconds."
 
     # Display the countdown timer, decreasing every second
     for (( CPT=${TIMER} ; CPT>=0; CPT-- )); do
@@ -365,13 +300,13 @@ waiting_timer() {
       sleep 1
     done
     echo ""
-    log "info" "waiting_timer: Finished for MESSAGE: '${MESSAGE}' after TIMER: '${TIMER}' seconds."
+    trace "waiting_timer: Finished for MESSAGE: '${MESSAGE}' after TIMER: '${TIMER}' seconds."
 
     # Clean up local variables
     unset MESSAGE DURATION TIMER NUMBER REGEX_TIME CPT HOURS MINUTES SECONDS
 
   else
-    log "err" "waiting_timer: Function called with incorrect number of arguments."
+    trace "waiting_timer: Function called with incorrect number of arguments."
     exit_due_to_code_issue
   fi
 }
@@ -390,11 +325,8 @@ prompt_for_yes_no() {
     # Reset the BOOLEAN variable
     BOOLEAN=""
 
-    # For clarity add a newline before the message.
-    echo ""
-
     # Log the initiation of the user prompt
-    log "info" "prompt_for_yes_no: Prompting user with message: '${MESSAGE}'."
+    trace "prompt_for_yes_no: Prompting user with message: '${MESSAGE}'."
 
     # Continuously prompt the user until a valid response ('y' or 'n') is received
     while ! [ "${BOOLEAN}" == "y" ] && ! [ "${BOOLEAN}" == "n" ] ; do
@@ -402,14 +334,14 @@ prompt_for_yes_no() {
     done
 
     # Log the user's response
-    log "info" "prompt_for_yes_no: User responded with: '${BOOLEAN}'."
+    trace "prompt_for_yes_no: User responded with: '${BOOLEAN}'."
 
     # Clean up local variables
     unset MESSAGE    
 
   else
     # Log an error if an incorrect number of arguments were passed
-    log "err" "prompt_for_yes_no: Incorrect usage. Expected one argument, received $#."
+    trace "prompt_for_yes_no: Incorrect usage. Expected one argument, received $#."
     exit_due_to_code_issue
   fi
 }
@@ -430,10 +362,7 @@ prompt_until_match_regex() {
     local REGEX="$2"
 
     # Log the initiation of the user prompt
-    log "info" "prompt_until_match_regex: Prompting user with message: '${PROMPT}', expecting input to match regex: '${REGEX}'."
-
-    # For clarity add a newline before the message.
-    echo ""
+    trace "prompt_until_match_regex: Prompting user with message: '${PROMPT}', expecting input to match regex: '${REGEX}'."
 
     # Continuously prompt the user until the input matches the provided regex
     while [ $(echo "${READ_VALUE}" | egrep "${REGEX}" | wc -l) -eq 0 ] ; do
@@ -441,14 +370,14 @@ prompt_until_match_regex() {
     done
 
     # Log the user's input
-    log "info" "prompt_until_match_regex: User provided valid input: '${READ_VALUE}'."
+    trace "prompt_until_match_regex: User provided valid input: '${READ_VALUE}'."
 
     # Clean up local variables
     unset PROMPT REGEX    
 
   else
     # Log an error if an incorrect number of arguments were passed
-    log "err" "prompt_until_match_regex: Incorrect usage. Expected two arguments (PROMPT and REGEX), received $#."
+    trace "prompt_until_match_regex: Incorrect usage. Expected two arguments (PROMPT and REGEX), received $#."
     exit_due_to_code_issue
   fi
 }
@@ -471,10 +400,7 @@ prompt_until_match_or_default() {
     local DEFAULT_VALUE="$3"
 
     # Log the initiation of the user prompt
-    log "info" "prompt_until_match_or_default: Prompting user with message: '${PROMPT}', expecting input to match regex: '${REGEX}', with default value: '${DEFAULT_VALUE}'."
-
-    # For clarity add a newline before the message.
-    echo ""
+    trace "prompt_until_match_or_default: Prompting user with message: '${PROMPT}', expecting input to match regex: '${REGEX}', with default value: '${DEFAULT_VALUE}'."
 
     # Continuously prompt the user until the input matches the provided regex or uses the default value if no input is provided
     while [[ ! "${READ_VALUE}" =~ ${REGEX} ]] ; do
@@ -487,14 +413,14 @@ prompt_until_match_or_default() {
     done
 
     # Log the user's input or the default value used
-    log "info" "prompt_until_match_or_default: Value set to: '${READ_VALUE}'."
+    trace "prompt_until_match_or_default: Value set to: '${READ_VALUE}'."
 
     # Clean up local variables
     unset PROMPT REGEX DEFAULT_VALUE    
 
   else
     # Log an error if an incorrect number of arguments were passed
-    log "err" "prompt_until_match_or_default: Incorrect usage. Expected three arguments (PROMPT, REGEX, and DEFAULT_VALUE), received $#."
+    trace "prompt_until_match_or_default: Incorrect usage. Expected three arguments (PROMPT, REGEX, and DEFAULT_VALUE), received $#."
     exit_due_to_code_issue
   fi
 }
@@ -512,7 +438,7 @@ prompt_select_from_range() {
     local MIN="$2"
     local MAX="$3"
 
-    log "info" "prompt_select_from_range: Started with PROMPT: '${PROMPT}', MIN: '${MIN}', and MAX: '${MAX}'."
+    trace "prompt_select_from_range: Started with PROMPT: '${PROMPT}', MIN: '${MIN}', and MAX: '${MAX}'."
 
     # Ensure MIN is not greater than MAX
     if [ "${MIN}" -gt "${MAX}" ] ; then
@@ -520,9 +446,6 @@ prompt_select_from_range() {
       MIN=${MAX}
       MAX=${TMP}
     fi
-
-    # For clarity add a newline before the message.
-    echo ""
 
     local END="false"
 
@@ -544,13 +467,13 @@ prompt_select_from_range() {
       fi
     done
 
-    log "info" "prompt_select_from_range: User's input is within the expected range."
+    trace "prompt_select_from_range: User's input is within the expected range."
 
     # Clean up local variables
     unset PROMPT MIN MAX END SEQUENCE_NUMBER    
 
   else
-    log "err" "prompt_select_from_range: Incorrect number of arguments. Expected 3, received $#."
+    trace "prompt_select_from_range: Incorrect number of arguments. Expected 3, received $#."
     exit_due_to_code_issue
   fi
 }
@@ -643,28 +566,28 @@ ROOT_PASSWORD=""
 # Prompt and ask the user for credentials, ensuring that they are provided.
 prompt_for_user_credentials() {
 
-  log "info" "prompt_for_user_credentials: Starting to gather user credentials."
+  trace "prompt_for_user_credentials: Starting to gather user credentials."
 
   # Check if either the USER or PASSWORD variables are empty
   if [ -z "${USER}" ] || [ -z "${PASSWORD}" ] ; then
 
     # If the USER variable is empty, prompt the user for it
     if [ -z "${USER}" ] ; then
-      prompt_until_match_or_default "Please enter the user name (default: admin) : " "..*" "admin"
+      prompt_until_match_or_default "  APIC password is required to continue: " "..*" "admin"
       USER=${READ_VALUE}
     fi
 
     # If the PASSWORD variable is empty, prompt the user for it
     if [ -z "${PASSWORD}" ] ; then
-      read -s -p  "Please enter the password : " PASSWORD
+      read -s -p  "  Please enter the password : " PASSWORD
       echo ""
       # For security reasons, do not log the actual password
-      log "info" "prompt_for_user_credentials: User provided a password for the username: \"${USER}\"."
+      trace "prompt_for_user_credentials: User provided a password for the username: \"${USER}\"."
     fi
 
   else
     # Both USER and PASSWORD are already set, so log this information
-    log "info" "prompt_for_user_credentials: USER and PASSWORD are already set. No need for further input."
+    trace "prompt_for_user_credentials: USER and PASSWORD are already set. No need for further input."
   fi
 
 }
@@ -672,7 +595,7 @@ prompt_for_user_credentials() {
 # Prompt and ask the user for TAC credentials when required.
 prompt_for_tac_credentials() {
 
-  log "info" "prompt_for_tac_credentials: Checking if TAC credentials are required."
+  trace "prompt_for_tac_credentials: Checking if TAC credentials are required."
 
   # If ROOT_PASSWORD is not set and TAC_USER is true, then prompt for the credentials
   if [ -z "${ROOT_PASSWORD}" ] && [ "${TAC_USER}" == "true" ] ; then
@@ -687,14 +610,14 @@ prompt_for_tac_credentials() {
       echo ""
 
       # For security reasons, do not log the actual password but record that it was provided
-      log "info" "prompt_for_tac_credentials: User provided a root password for TAC with the associated TOKEN: '${TOKEN}'."
+      trace "prompt_for_tac_credentials: User provided a root password for TAC with the associated TOKEN: '${TOKEN}'."
 
       # Clean up local variables
       unset TOKEN
     fi
 
   else
-    log "info" "prompt_for_tac_credentials: ROOT_PASSWORD is already set or TAC_USER is not active. No need for further input."
+    trace "prompt_for_tac_credentials: ROOT_PASSWORD is already set or TAC_USER is not active. No need for further input."
   fi
 
 }
@@ -702,7 +625,7 @@ prompt_for_tac_credentials() {
 # Validates TAC user credentials.
 validate_tac_credentials() {
 
-    log "info" "validate_tac_credentials: Verifying TAC user credentials."
+    trace "validate_tac_credentials: Verifying TAC user credentials."
 
     # Check if the root password is provided or not. If not, read it.
     if [ -z "${ROOT_PASSWORD}" ] ; then
@@ -718,7 +641,7 @@ validate_tac_credentials() {
     TEST_RESULT=$(${SSH_TMP_COMMAND} "echo 'SSH Test Success'" 2>/dev/null)
 
     if [ "$TEST_RESULT" != "SSH Test Success" ] ; then
-        log "err" "validate_tac_credentials: Invalid or expired root password."
+        trace "validate_tac_credentials: Invalid or expired root password."
         exit_password_expired_or_wrong
     fi
 
@@ -726,7 +649,7 @@ validate_tac_credentials() {
     unset SSH_TMP_COMMAND
     unset TEST_RESULT
 
-    log "info" "validate_tac_credentials: TAC user credentials validated successfully."
+    trace "validate_tac_credentials: TAC user credentials validated successfully."
 }
 
 #====================================#
@@ -737,7 +660,7 @@ validate_tac_credentials() {
 # relevant global variables.
 gather_local_node_details() {
   
-  log "info" "gather_local_node_details: Starting to identify local node details."
+  trace "gather_local_node_details: Starting to identify local node details."
 
   local HOST=$(hostname)
 
@@ -755,13 +678,13 @@ gather_local_node_details() {
   else
     # If no node information is found, we might be on a controller node.
     # Check if the current node is a controller node.
-    local NODE_ATTRIBUTES=$(moquery -c fabricNode -x "query-target-filter=eq(fabricNode.name,\"${HOST}\")" -o json | jq '.imdata[].fabricNode.attributes' 2> /dev/null )
+    local NODE_ATTRIBUTES=$(moquery -c fabricNode -x "query-target-filter=eq(fabricNode.name,\"${HOST}\")" -o xml 2> /dev/null )
     if [ -n "${NODE_ATTRIBUTES}" ] ; then
       LOCAL_HOSTNAME=${HOST}
-      LOCAL_NODE_TYPE=$(echo "${NODE_ATTRIBUTES}" | jq -r '.role')      
-      LOCAL_NODE_ID=$(echo "${NODE_ATTRIBUTES}" | jq -r '.id')
-      LOCAL_POD_ID=$(echo "${NODE_ATTRIBUTES}" | jq -r '.dn' | egrep -o "pod-[0-9]+" | cut -d '-' -f 2)
-      LOCAL_IP=$(echo "${NODE_ATTRIBUTES}" | jq -r '.address')
+      LOCAL_NODE_TYPE=$(echo "${NODE_ATTRIBUTES}" | xmllint --xpath 'string(/imdata/fabricNode/@role)' -)      
+      LOCAL_NODE_ID=$(echo "${NODE_ATTRIBUTES}" | xmllint --xpath 'string(/imdata/fabricNode/@id)' -)    
+      LOCAL_POD_ID=$(echo "${NODE_ATTRIBUTES}" | xmllint --xpath 'string(/imdata/fabricNode/@dn)' - | egrep -o "pod-[0-9]+" | cut -d '-' -f 2)
+      LOCAL_IP=$(echo "${NODE_ATTRIBUTES}" | xmllint --xpath 'string(/imdata/fabricNode/@address)' -)
       LOCAl_SOFTWARE_RELEASE=$(acidiag version)
     else
       # If it's neither a leaf, spine, nor controller node, set type to 'unknown'.
@@ -771,7 +694,7 @@ gather_local_node_details() {
   fi
 
   # Log the consolidated attributes of the local node.
-  log "info" "gather_local_node_details: Local Node Details: Hostname=${LOCAL_HOSTNAME}, Type=${LOCAL_NODE_TYPE}, Node ID=${LOCAL_NODE_ID}, Pod ID=${LOCAL_POD_ID}, IP=${LOCAL_IP}, Software Release=${LOCAl_SOFTWARE_RELEASE}"
+  trace "gather_local_node_details: Local Node Details: Hostname=${LOCAL_HOSTNAME}, Type=${LOCAL_NODE_TYPE}, Node ID=${LOCAL_NODE_ID}, Pod ID=${LOCAL_POD_ID}, IP=${LOCAL_IP}, Software Release=${LOCAl_SOFTWARE_RELEASE}"
 
   # Clean up local variables
   unset NODE_INFO HOST NODE_ATTRIBUTES
@@ -780,17 +703,17 @@ gather_local_node_details() {
 # This function gathers details about the remote node.
 # relevant global variables.
 gather_remote_node_details() {
-  log "info" "gather_remote_node_details: Starting to identify remote node details."
+  trace "gather_remote_node_details: Starting to identify remote node details."
 
   # Check if local node details are available, if not fetch them.
   if [ -z "${LOCAL_NODE_TYPE}" ] ; then
-    log "info" "gather_remote_node_details: Fetched local node details as LOCAL_NODE_TYPE was not set."
+    trace "gather_remote_node_details: Fetched local node details as LOCAL_NODE_TYPE was not set."
     gather_local_node_details
   fi
 
   # If the REMOTE_NODE_ID isn't provided, exit with an error.
   if [ -z "${REMOTE_NODE_ID}" ] ; then
-    log "err" "gather_remote_node_details: Remote Node ID not set."
+    trace "gather_remote_node_details: Remote Node ID not set."
     exit_due_to_code_issue
   fi
 
@@ -821,17 +744,17 @@ gather_remote_node_details() {
     fi
   elif [[ "${LOCAL_NODE_TYPE}" == "controller" ]] ; then
     # If local node is a controller, use MO queries to fetch remote node details.
-    REMOTE_NODE_INFO=$(moquery -c fabricNode -x "query-target-filter=eq(fabricNode.id,\"${REMOTE_NODE_ID}\")" -o json | jq '.imdata[].fabricNode' | tr '\n' ' ')
+    REMOTE_NODE_INFO=$(moquery -c fabricNode -x "query-target-filter=eq(fabricNode.id,\"${REMOTE_NODE_ID}\")" -o xml)
 
-    REMOTE_HOSTNAME=$(echo "${REMOTE_NODE_INFO}" | jq -r '.attributes.name')
-    REMOTE_NODE_TYPE=$(echo "${REMOTE_NODE_INFO}" | jq -r '.attributes.role')
-    REMOTE_POD_ID=$(echo "${REMOTE_NODE_INFO}" | jq -r '.attributes.dn' | egrep -o "pod-[0-9]+" | cut -d '-' -f 2)
-    REMOTE_IP=$(echo "${REMOTE_NODE_INFO}" | jq -r '.attributes.address')
-    REMOTE_SOFTWARE_RELEASE=$(echo "${REMOTE_NODE_INFO}" | jq -r '.attributes.version' | sed -e "s#(\([^)][^)]*\))#.\1#g")
+    REMOTE_HOSTNAME=$(echo "${REMOTE_NODE_INFO}" |  xmllint --xpath 'string(/imdata/fabricNode/@name)' -)
+    REMOTE_NODE_TYPE=$(echo "${REMOTE_NODE_INFO}" |  xmllint --xpath 'string(/imdata/fabricNode/@role)' -)
+    REMOTE_POD_ID=$(echo "${REMOTE_NODE_INFO}" |  xmllint --xpath 'string(/imdata/fabricNode/@dn)' - | egrep -o "pod-[0-9]+" | cut -d '-' -f 2)
+    REMOTE_IP=$(echo "${REMOTE_NODE_INFO}" |  xmllint --xpath 'string(/imdata/fabricNode/@address)' -)
+    REMOTE_SOFTWARE_RELEASE=$(echo "${REMOTE_NODE_INFO}" |  xmllint --xpath 'string(/imdata/fabricNode/@version)' - | sed -e "s#(\([^)][^)]*\))#.\1#g")
   fi
 
   # Log the gathered remote node details.
-  log "info" "gather_remote_node_details: Remote Node Details: Hostname=${REMOTE_HOSTNAME}, Type=${REMOTE_NODE_TYPE}, Node ID=${REMOTE_NODE_ID}, Pod ID=${REMOTE_POD_ID}, IP=${REMOTE_IP}, Software Release=${REMOTE_SOFTWARE_RELEASE}"
+  trace "gather_remote_node_details: Remote Node Details: Hostname=${REMOTE_HOSTNAME}, Type=${REMOTE_NODE_TYPE}, Node ID=${REMOTE_NODE_ID}, Pod ID=${REMOTE_POD_ID}, IP=${REMOTE_IP}, Software Release=${REMOTE_SOFTWARE_RELEASE}"
 
   # Cleanup local variable.
   unset REMOTE_NODE_INFO
@@ -841,7 +764,7 @@ gather_remote_node_details() {
 # relevant global variables.
 reset_remote_node_details() {
 
-  log "info" "reset_remote_node_details: Starting to identify remote node details."
+  trace "reset_remote_node_details: Starting to identify remote node details."
 
   # Hostname of the remote node.
   REMOTE_HOSTNAME=""
@@ -873,7 +796,7 @@ configure_remote_ssh() {
   
   # Verify if LOCAL_NODE_TYPE is already set. If not, fetch the details.
   if [ -z "${LOCAL_NODE_TYPE}" ] ; then
-    log "info" "configure_remote_ssh: Fetched local node details as LOCAL_NODE_TYPE was not set."
+    trace "configure_remote_ssh: Fetched local node details as LOCAL_NODE_TYPE was not set."
     gather_local_node_details
   fi
 
@@ -892,14 +815,14 @@ configure_remote_ssh() {
 
         # Check if the root password is set. If not, prompt for TAC credentials.
         if [ -z "${ROOT_PASSWORD}" ] ; then
-          log "info" "configure_remote_ssh: Prompted for TAC credentials as ROOT_PASSWORD was not set."
+          trace "configure_remote_ssh: Prompted for TAC credentials as ROOT_PASSWORD was not set."
           prompt_for_tac_credentials
           
         fi
 
         # Configure SSH with the root password.
         SSH_REMOTE_COMMAND="sshpass -p ${ROOT_PASSWORD} ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa -o StrictHostKeyChecking=no root@${REMOTE_IP} "
-        log "info" "configure_remote_ssh: SSH command configured in TAC mode for remote IP: ${REMOTE_IP}"
+        trace "configure_remote_ssh: SSH command configured in TAC mode for remote IP: ${REMOTE_IP}"
 
       # User mode SSH configuration.
       else
@@ -907,22 +830,22 @@ configure_remote_ssh() {
         # If either USER or PASSWORD is unset, prompt the user for credentials.
         if [ -z "${USER}" ] || [ -z "${PASSWORD}" ] ; then
           prompt_for_user_credentials
-          log "info" "configure_remote_ssh: Prompted for user credentials as they were not set."
+          trace "configure_remote_ssh: Prompted for user credentials as they were not set."
         fi
 
         # Configure SSH with the provided user credentials.
         SSH_REMOTE_COMMAND="sshpass -p ${PASSWORD} ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa -o StrictHostKeyChecking=no ${USER}@${REMOTE_IP} "
-        log "info" "configure_remote_ssh: SSH command configured in user mode for remote IP: ${REMOTE_IP}"
+        trace "configure_remote_ssh: SSH command configured in user mode for remote IP: ${REMOTE_IP}"
 
       fi
 
     else
-      log "err" "configure_remote_ssh: REMOTE_NODE_ID is not set."
+      trace "configure_remote_ssh: REMOTE_NODE_ID is not set."
       exit_due_to_code_issue
     fi
 
   else
-    log "err" "configure_remote_ssh: Local node type is unkown/leaf/spine. Currently it is not supported."
+    trace "configure_remote_ssh: Local node type is unkown/leaf/spine. Currently it is not supported."
     exit_due_to_code_issue
   fi
 
@@ -939,19 +862,19 @@ check_remote_ssh_alive() {
     # Check the result of the SSH test command.
     if [ -n "${SSH_TEST_RESULT}" ] ; then
       BOOLEAN="true"
-      log "info" "check_remote_ssh_alive: SSH session is active."
+      trace "check_remote_ssh_alive: SSH session is active."
     else
-      log "warning" "check_remote_ssh_alive: SSH session is not active second try in 10s."
+      trace "check_remote_ssh_alive: SSH session is not active second try in 10s."
 
       sleep 2s
 
       SSH_TEST_RESULT=$(${SSH_REMOTE_COMMAND}"echo Connectivity test" 2> /dev/null)
       if [ -n "${SSH_TEST_RESULT}" ] ; then
         BOOLEAN="true"
-        log "info" "check_remote_ssh_alive: SSH session is active."
+        trace "check_remote_ssh_alive: SSH session is active."
       else
         BOOLEAN="false"
-        log "err" "check_remote_ssh_alive: SSH session is not active."
+        trace "check_remote_ssh_alive: SSH session is not active."
       fi
 
     fi
@@ -959,7 +882,7 @@ check_remote_ssh_alive() {
     unset SSH_TEST_RESULT
 
   else
-    log "err" "check_remote_ssh_alive: SSH_REMOTE_COMMAND is not set. Can't check connectivity."
+    trace "check_remote_ssh_alive: SSH_REMOTE_COMMAND is not set. Can't check connectivity."
     exit_due_to_code_issue
   fi
 }
@@ -986,10 +909,10 @@ send_remote_command() {
       # Execute the remote command and store its result.
       READ_VALUE=$(${SSH_REMOTE_COMMAND}"${COMMAND}" 2> /dev/null)
 
-      log "info" "send_remote_command: Successfully executed remote command: ${COMMAND}."
+      trace "send_remote_command: Successfully executed remote command: ${COMMAND}."
     else
       # Log and handle an expired or wrong password scenario.
-      log "err" "send_remote_command: Remote SSH session is inactive for the command: ${COMMAND}. Password might be expired or incorrect."
+      trace "send_remote_command: Remote SSH session is inactive for the command: ${COMMAND}. Password might be expired or incorrect."
       exit_password_expired_or_wrong
     fi
 
@@ -997,7 +920,7 @@ send_remote_command() {
     unset COMMAND
 
   else
-    log "err" "send_remote_command: SSH_REMOTE_COMMAND is not set. Unable to send remote command."
+    trace "send_remote_command: SSH_REMOTE_COMMAND is not set. Unable to send remote command."
     exit_due_to_code_issue
   fi
 
@@ -1014,7 +937,7 @@ moquery_dn_fault() {
 
   # Check if the argument count is 1.
   if [ "$#" -ne "1" ] ; then
-    log "err" "moquery_dn_fault: Invalid number of arguments provided. Expected 1 but got $#."
+    trace "moquery_dn_fault: Invalid number of arguments provided. Expected 1 but got $#."
     exit_due_to_code_issue
   fi
 
@@ -1029,11 +952,11 @@ moquery_dn_fault() {
     # If fault exists, fetch its Distinguished Names (DNs).
     READ_VALUE=$(moquery -c faultInst -x "query-target-filter=and(eq(faultInst.code,\"${FAULT_CODE}\"),eq(faultInst.lc,\"raised\"))" | egrep "^dn" \
     | sed -e "s#^dn  *:  *##g" -e "s#\"##g" -e "s#  *# #g" -e "s#^ *##g" -e "s# *\$##g" | tr '\n' ' ' )
-    log "info" "moquery_dn_fault: Successfully fetched DNs for fault code: ${FAULT_CODE} | count: ${FAULT_COUNT}."
+    trace "moquery_dn_fault: Successfully fetched DNs for fault code: ${FAULT_CODE} | count: ${FAULT_COUNT}."
   else
     # If no fault exists, set an empty value.
     READ_VALUE=""
-    log "info" "moquery_dn_fault: No fault found for code: ${FAULT_CODE}."
+    trace "moquery_dn_fault: No fault found for code: ${FAULT_CODE}."
   fi
 
   # Clean up the local variables.
@@ -1047,7 +970,7 @@ moquery_dn_faults() {
 
   # Check if the argument count is 1.
   if [ "$#" -ne "1" ] ; then
-    log "err" "moquery_dn_faults: Invalid number of arguments provided. Expected 1 but got $#."
+    trace "moquery_dn_faults: Invalid number of arguments provided. Expected 1 but got $#."
     exit_due_to_code_issue
   fi
 
@@ -1055,7 +978,7 @@ moquery_dn_faults() {
   local STORE_DNS=""
 
   # Logging the function completion.
-  log "info" "moquery_dn_faults: Fetched DNs for fault codes: ${FAULT_CODES}."
+  trace "moquery_dn_faults: Fetched DNs for fault codes: ${FAULT_CODES}."
 
   # Loop over each fault code and retrieve its DNs.
   for FAULT_CODE in $(echo "${FAULT_CODES}"); do
@@ -1081,7 +1004,7 @@ extract_node_id_from_dn() {
 
   # Check if the argument count is 1.
   if [ "$#" -ne "1" ] ; then
-    log "err" "extract_node_id_from_dn: Invalid number of arguments provided. Expected 1 but got $#."
+    trace "extract_node_id_from_dn: Invalid number of arguments provided. Expected 1 but got $#."
     exit_due_to_code_issue
   fi
 
@@ -1090,7 +1013,7 @@ extract_node_id_from_dn() {
   # Extract node id from the DN if it exists.
   if [ $(echo "${DN}" | egrep -o "/node-[0-9]+" | wc -l) -gt 0 ] ; then
     REMOTE_NODE_ID=$(echo "${DN}" | egrep -m 1 -o "/node-[0-9]+" | awk -F '-' '{print $2}')
-    log "info" "extract_node_id_from_dn: Extracted node ID ${REMOTE_NODE_ID} from DN: ${DN}."
+    trace "extract_node_id_from_dn: Extracted node ID ${REMOTE_NODE_ID} from DN: ${DN}."
   else
     log "warn" "extract_node_id_from_dn: No node ID found in DN: ${DN}."
     exit_due_to_code_issue
@@ -1108,22 +1031,22 @@ is_fault_status_raised() {
 
   # Check if the argument count is 1.
   if [ "$#" -ne "1" ] ; then
-    log "err" "is_fault_status_raised: Invalid number of arguments provided. Expected 1 but got $#."
+    trace "is_fault_status_raised: Invalid number of arguments provided. Expected 1 but got $#."
     exit_due_to_code_issue
   fi
 
   local DN="$1"
 
-  # Extract fault status using moquery and parse using jq.
-  local FAULT_STATUS=$(moquery --dn "${DN}" -o json | jq -r '.imdata[].faultInst.attributes.lc')
+  # Extract fault status using moquery and parse using xmllint.
+  local FAULT_STATUS=$(moquery --dn "${DN}" -o xml | xmllint --xpath 'string(/imdata/faultInst/@lc)' -)
   
   # Determine the boolean result based on the fault status.
   if [ "${FAULT_STATUS}" == "raised" ] ; then
     BOOLEAN="true"
-    log "info" "is_fault_status_raised: The fault with DN ${DN} has its status set to raised."
+    trace "is_fault_status_raised: The fault with DN ${DN} has its status set to raised."
   else
     BOOLEAN="false"
-    log "info" "is_fault_status_raised: The fault with DN ${DN} does not have its status set to raised."
+    trace "is_fault_status_raised: The fault with DN ${DN} does not have its status set to raised."
   fi
 
   # Clean up local variables.
@@ -1149,7 +1072,7 @@ compare_software_versions() {
 
   # Ensure that exactly two arguments are provided.
   if [ "$#" -ne "2" ] ; then
-    log "err" "compare_software_versions: Incorrect number of arguments. Expected 2, received $#."
+    trace "compare_software_versions: Incorrect number of arguments. Expected 2, received $#."
     exit_due_to_code_issue
     return
   fi
@@ -1157,22 +1080,22 @@ compare_software_versions() {
   local SOFTWARE_VERSION_1=$(echo "$1" | sed -e "s#^ *##g" -e "s# *\$##g" -e "s#(\([^)][^)]*\))#.\1#g")
   local SOFTWARE_VERSION_2=$(echo "$2" | sed -e "s#^ *##g" -e "s# *\$##g" -e "s#(\([^)][^)]*\))#.\1#g")
 
-  log "info" "compare_software_versions: Comparing versions ${SOFTWARE_VERSION_1} and ${SOFTWARE_VERSION_2}."
+  trace "compare_software_versions: Comparing versions ${SOFTWARE_VERSION_1} and ${SOFTWARE_VERSION_2}."
 
   # Check if both versions are the same.
   if [ "${SOFTWARE_VERSION_1}" == "${SOFTWARE_VERSION_2}" ] ; then
     READ_VALUE="0"
-    log "info" "compare_software_versions: The software versions are identical."
+    trace "compare_software_versions: The software versions are identical."
   else
     # Determine which version is newer.
     local HIGHEST_VERSION=$(echo -e "${SOFTWARE_VERSION_1}\n${SOFTWARE_VERSION_2}" | sort -r -V | head -n 1)
 
     if [ "${HIGHEST_VERSION}" == "${SOFTWARE_VERSION_1}" ] ; then
       READ_VALUE="1"
-      log "info" "compare_software_versions: Version ${SOFTWARE_VERSION_1} is newer than ${SOFTWARE_VERSION_2}."
+      trace "compare_software_versions: Version ${SOFTWARE_VERSION_1} is newer than ${SOFTWARE_VERSION_2}."
     else
       READ_VALUE="-1"
-      log "info" "compare_software_versions: Version ${SOFTWARE_VERSION_2} is newer than ${SOFTWARE_VERSION_1}."
+      trace "compare_software_versions: Version ${SOFTWARE_VERSION_2} is newer than ${SOFTWARE_VERSION_1}."
     fi
   fi
 
@@ -1189,11 +1112,11 @@ compare_software_versions() {
 # FUNCTIONS - ARGUMENTS #
 #=======================#
 
-# Displays help menu for the script aci-exceeded-storage-allocation.
+# Displays help menu for the script StorageAnalyzer.
 menu_help() {
   
   # Function to display the title in a clear and consistent format.
-  display "aci-exceeded-storage-allocation"
+  title "StorageAnalyzer"
   
   # Describe the purpose and usage of the script.
   cat <<EOL
@@ -1208,11 +1131,11 @@ Options:
   -h, --help        Show this help message.
 
 Examples:
-  ./aci-exceeded-storage-allocation
+  ./StorageAnalyzer
 
-  ./aci-exceeded-storage-allocation --user "{{USER}}" --pwd '{{PASSWORD}}'
+  ./StorageAnalyzer --user "{{USER}}" --pwd '{{PASSWORD}}'
 
-  ./aci-exceeded-storage-allocation --tac --root-pwd "MEQCIAP+JMXdMqOPUkrkavwhgFFl/6KrZEO6snWtirFiiy9vAiB6ubkkb3lT+wA8YlmwzXLeNz5didzH3Vu8lQrp8OMVUw=="
+  ./StorageAnalyzer --tac --root-pwd "MEQCIAP+JMXdMqOPUkrkavwhgFFl/6KrZEO6snWtirFiiy9vAiB6ubkkb3lT+wA8YlmwzXLeNz5didzH3Vu8lQrp8OMVUw=="
 EOL
 }
 
@@ -1221,11 +1144,11 @@ parse_args() {
   
   # Use getopt to parse the provided arguments.
   local OPTIONS
-  OPTIONS=$(getopt -l "user:,pwd:,root-pwd:,tac,help" -o "u:p:r:th" -a -- "$@")
+  OPTIONS=$(getopt -l "user:,pwd:,root-pwd:,tac,debug,help" -o "u:p:r:dth" -a -- "$@")
   
   # Ensure no error occurred while parsing.
   if [ $? -ne 0 ] ; then
-    log "err" "parse_args: Error in the options, see --help for more information."
+    trace "parse_args: Error in the options, see --help for more information."
     exit 0
   fi
 
@@ -1249,6 +1172,9 @@ parse_args() {
       -t|--tac)
         TAC_USER="true"
         ;;
+      -d|--debug)
+        verbose=1
+        ;;  
       -h|--help)
         menu_help
         exit 1
@@ -1256,11 +1182,6 @@ parse_args() {
       --)
         shift
         break
-        ;;
-      *)
-        # Should not occur.
-        log "err" "parse_args: Unknown option encountered."
-        exit_due_to_code_issue
         ;;
     esac
     shift
@@ -1291,11 +1212,11 @@ CSCwe09535() {
   local PATH_MOUNT="$1"
 
   # Log the initiation of the process
-  log "info" "Starting the process for the /techsupport path."
+  trace "Starting the process for the /techsupport path."
 
   # Validate that the correct number of arguments are provided
   if [ "$#" -ne 1 ] ; then
-    log "err" "Invalid number of arguments provided. Expected 2, received $#."
+    trace "Invalid number of arguments provided. Expected 2, received $#."
     exit_due_to_code_issue
   fi
 
@@ -1303,8 +1224,8 @@ CSCwe09535() {
   if [ "${TAC_USER}" == "true" ] && [ "${REMOTE_NODE_TYPE}" == "controller" ] ; then
 
     # Display the defect being handled.
-    display "Checking the defect: CSCwe09535"
-    log "info" "CSCwe09535: Checking the defect: CSCwe09535"  
+    subtitle "Checking the defect: CSCwe09535"
+    trace "CSCwe09535: Checking the defect: CSCwe09535"  
 
     # Helper function to process the defect on one specific directory.
     # Arguments:
@@ -1313,7 +1234,7 @@ CSCwe09535() {
       local TARGET_DIR="$1"  # The target directory to inspect for the defect.
       local TARGET_COUNT=0  # Count of defect occurrences in the target directory.
 
-      log "info" "process_defect_on_directory: Checking defect in directory ${TARGET_DIR}."
+      trace "process_defect_on_directory: Checking defect in directory ${TARGET_DIR}."
 
       # Check for presence of the problematic directories.
       send_remote_command "ls -d ${TARGET_DIR} 2> /dev/null | egrep \"oci[0-9]+\" | wc -l"
@@ -1325,27 +1246,19 @@ CSCwe09535() {
       # If problematic directories found, delete them and re-check.
       if [ "${TARGET_COUNT}" -gt 0 ] ; then
 
-        display "CSCwe09535 Hits"
-
-        display "To fix the defect you need to performs the following steps during a maintenance windows:"
-
-        display "1. connect as root user on \"${REMOTE_HOSTNAME}\"."
-
-        display "2. ls -d ${TARGET_DIR} 2> /dev/null | egrep \"oci[0-9]+\" | xargs -I {} rm -rf {} "
-
-        display "3. reboot the contoller \"${REMOTE_HOSTNAME}\"."
+        alert "CSCwe09535 Hits"
 
       else
-        display "CSCwe09535 No Hits"
+        success "CSCwe09535 No Hits"
       fi
 
       # Store results about the defect.
       if [ "${TARGET_COUNT}" -gt 0 ] ; then
         DEFECT_HIT="CSCwe09535"
-        log "info" "process_defect_on_directory: Defect CSCwe09535 detected in directory ${TARGET_DIR}."
+        trace "process_defect_on_directory: Defect CSCwe09535 detected in directory ${TARGET_DIR}."
         STORE_DEFECT_CSCwe09535[${STORE_DEFECT_CSCwe09535_CPT}]="${REMOTE_NODE_ID}:CSCwe09535:hit"
       else
-        log "info" "process_defect_on_directory: No defect detected in directory ${TARGET_DIR}."
+        trace "process_defect_on_directory: No defect detected in directory ${TARGET_DIR}."
         STORE_DEFECT_CSCwe09535[${STORE_DEFECT_CSCwe09535_CPT}]="${REMOTE_NODE_ID}:CSCwe09535:no hit"
       fi
       STORE_DEFECT_CSCwe09535_CPT=$((STORE_DEFECT_CSCwe09535_CPT+1))
@@ -1381,19 +1294,19 @@ CSCwe09535() {
         fi
 
       else
-        log "info" "CSCwe09535: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
-        display "CSCwe09535 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
+        trace "CSCwe09535: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+        success "CSCwe09535 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
       fi
 
     else
-      log "info" "CSCwe09535: ${REMOTE_NODE_ID}:CSCwe09535:already tested."
+      trace "CSCwe09535: ${REMOTE_NODE_ID}:CSCwe09535:already tested."
     fi
 
     # Clear the local variables.
     unset CSCwe09535_CPT CSCwe09535_TESTED
 
   else
-    log "info" "CSCwe09535: Not processing - either not a TAC user or not a controller."
+    trace "CSCwe09535: Not processing - either not a TAC user or not a controller."
   fi
 
   # Clear the local variables.
@@ -1413,8 +1326,8 @@ CSCvt98738(){
   if [ "${TAC_USER}" == "true" ] && [ "${REMOTE_NODE_TYPE}" == "controller" ] ; then
 
     # Display the defect being handled.
-    display "Checking the defect: CSCvt98738" 
-    log "info" "CSCvt98738: Checking the defect: CSCvt98738" 
+    subtitle "Checking the defect: CSCvt98738" 
+    trace "CSCvt98738: Checking the defect: CSCvt98738" 
 
     process_defect_on_directory() {
       local TARGET_DIR="$1" 
@@ -1460,13 +1373,13 @@ CSCvt98738(){
               # Increment the count of files to be deleted.              
               TARGET_COUNT=$(( ${TARGET_COUNT} + 1 ))
 
-              log "info" "CSCvt98738: File deleted: ${TARGET_FILE}"
-              display "CSCvt98738: File deleted: ${TARGET_FILE}"
+              trace "CSCvt98738: File deleted: ${TARGET_FILE}"
+              info "CSCvt98738: File deleted: ${TARGET_FILE}"
 
             else
               
-              log "info" "CSCvt98738: File correct: ${TARGET_FILE}"
-              display "CSCvt98738: File correct: ${TARGET_FILE}"
+              trace "CSCvt98738: File correct: ${TARGET_FILE}"
+              info "CSCvt98738: File correct: ${TARGET_FILE}"
 
             fi
           fi
@@ -1494,13 +1407,13 @@ CSCvt98738(){
         # Test the files have been deleted
         send_remote_command "ls ${DELETE_FILES} 2> /dev/null | wc -l"
         if [ "${READ_VALUE}" -gt 0 ] ; then
-          log "err" "CSCvt98738: Files remained: \"${READ_VALUE}\""
-          display "CSCvt98738 Hits and not fixed"
+          trace "CSCvt98738: Files remained: \"${READ_VALUE}\""
+          alert "CSCvt98738 Hits and not fixed"
 
         else
 
-          log "info" "CSCvt98738: Files remained: \"${READ_VALUE}\""
-          display "CSCvt98738 Hits and fixed"
+          trace "CSCvt98738: Files remained: \"${READ_VALUE}\""
+          alert "CSCvt98738 Hits and fixed"
 
         fi
 
@@ -1511,7 +1424,7 @@ CSCvt98738(){
         BOOLEAN_SLEEP="true"
       else
 
-        display "CSCvt98738 No Hits"
+        success "CSCvt98738 No Hits"
 
         STORE_DEFECT_CSCvt98738[${STORE_DEFECT_CSCvt98738_CPT}]="${REMOTE_NODE_ID}:CSCvt98738:no hit"
       fi
@@ -1542,18 +1455,18 @@ CSCvt98738(){
         done
         unset DIRECTORIES DIRECTORY
       else
-        log "info" "CSCvt98738: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
-        display "CSCvt98738 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
+        trace "CSCvt98738: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+        success "CSCvt98738 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
       fi
     else
-      log "info" "CSCvt98738: ${REMOTE_NODE_ID}:CSCvt98738:already tested."
+      trace "CSCvt98738: ${REMOTE_NODE_ID}:CSCvt98738:already tested."
     fi
 
     # Clear the local variables.
     unset CSCvt98738_CPT CSCvt98738_TESTED
 
   else
-    log "info" "CSCvt98738: Not processing - either not a TAC user or not a controller."
+    trace "CSCvt98738: Not processing - either not a TAC user or not a controller."
   fi      
 }
 
@@ -1570,8 +1483,8 @@ CSCvn13119() {
   if [ "${TAC_USER}" == "true" ] && [ "${REMOTE_NODE_TYPE}" == "controller" ] ; then
 
     # Display the defect being handled.
-    display "Checking the defect: CSCvn13119"
-    log "info" "CSCvn13119: Checking the defect: CSCvn13119"
+    subtitle "Checking the defect: CSCvn13119"
+    trace "CSCvn13119: Checking the defect: CSCvn13119"
 
     process_defect_on_directory() {
       local TARGET_DIR="$1" 
@@ -1593,7 +1506,7 @@ CSCvn13119() {
       # If the total size of the MegaSAS files exceeds the maximum, delete the oldest ones.
       if [ "${TARGET_SIZE}" -gt "${MAXIMUM_SIZE}" ] ; then
 
-          log "info" "CSCvn13119: MegaSAS files size ${SIZE} exceeds the maximum limit. Preparing for deletion."
+          trace "CSCvn13119: MegaSAS files size ${SIZE} exceeds the maximum limit. Preparing for deletion."
           
           TARGET_COUNT=$(( ${TARGET_COUNT} + 1 ))
 
@@ -1603,12 +1516,12 @@ CSCvn13119() {
           # Clear the file without deleting
           send_remote_command "echo \"\" > ${TARGET_DIR}MegaSAS.log"
 
-          display "MegaSAS files size is exceeded: ${SIZE} - the files have been cleared."
+          alert "MegaSAS files size is exceeded: ${SIZE} - the files have been cleared."
 
       else
-          log "info" "CSCvn13119: MegaSAS files size is ${SIZE}, which is within acceptable limits. No action needed."
+          trace "CSCvn13119: MegaSAS files size is ${SIZE}, which is within acceptable limits. No action needed."
 
-          display "MegaSAS files size is not exceeded: ${SIZE}"
+          success "MegaSAS files size is not exceeded: ${SIZE}"
 
       fi
 
@@ -1617,7 +1530,7 @@ CSCvn13119() {
 
       # Record the results of the defect check.
       if [ "${TARGET_COUNT}" -gt 0 ] ; then
-        display "CSCvn13119 Hits and fixed"
+        alert "CSCvn13119 Hits and fixed"
 
         DEFECT_HIT="CSCvn13119"
 
@@ -1625,7 +1538,7 @@ CSCvn13119() {
 
         BOOLEAN_SLEEP="true"
       else
-        display "CSCvn13119 No Hits"
+        success "CSCvn13119 No Hits"
 
         STORE_DEFECT_CSCvn13119[${STORE_DEFECT_CSCvn13119_CPT}]="${REMOTE_NODE_ID}:CSCvn13119:no hit"
       fi
@@ -1651,15 +1564,15 @@ CSCvn13119() {
       if [ "${READ_VALUE}" -lt 0 ] ; then
         process_defect_on_directory "/"
       else
-        log "info" "CSCvn13119: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
-        display "CSCvn13119 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
+        trace "CSCvn13119: Software ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+        success "CSCvn13119 sofware release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
       fi
     else
-      log "info" "CSCvn13119: ${REMOTE_NODE_ID}:CSCvn13119:already tested."
+      trace "CSCvn13119: ${REMOTE_NODE_ID}:CSCvn13119:already tested."
     fi
     
   else
-    log "info" "CSCvn13119: Not processing - either not a TAC user or not a controller."
+    trace "CSCvn13119: Not processing - either not a TAC user or not a controller."
   fi
 
   # Clear the local variables.
@@ -1694,11 +1607,11 @@ handle_firmware_path() {
   local PATH_MOUNT="$1"
 
   # Log the start of the process
-  log "info" "handle_firmware_path: Starting the process for the /firmware path."
+  trace "handle_firmware_path: Starting the process for the /firmware path."
 
   # Ensure the correct number of arguments is passed
   if [ "$#" -ne 1 ] ; then
-    log "err" "handle_firmware_path: Invalid number of arguments provided. Expected 1, received $#."
+    trace "handle_firmware_path: Invalid number of arguments provided. Expected 1, received $#."
     exit_due_to_code_issue
   fi
 
@@ -1707,25 +1620,25 @@ handle_firmware_path() {
 
   # Handle the /firmware path
   if [ "${PATH_MOUNT}" == "/firmware" ] ; then
-    log "info" "handle_firmware_path: Working with /firmware path."
+    trace "handle_firmware_path: Working with /firmware path."
 
     # Fetch the list of software images uploaded on the controller
-    local LIST_IMAGES=$(icurl -k "https://127.0.0.1/api/class/firmwareFirmware.json" --silent \
-                    | jq '.imdata[].firmwareFirmware.attributes | select( .isoname | match("aci-apic-dk|aci-n9000-dk9")).dn' \
-                    | sed "s#\"##g" | grep -v "${REMOTE_SOFTWARE_RELEASE}")
+    local LIST_IMAGES=$(icurl -k "https://127.0.0.1/api/class/firmwareFirmware.xml" --silent \
+                    | xmllint --xpath '/imdata/firmwareFirmware[contains(@isoname, "aci-apic-dk") or contains(@isoname, "aci-n9000-dk9")]/@dn' - \
+                    | sed 's/dn=\|\"//g' | tr  ' ' '\n' | grep -v "${REMOTE_SOFTWARE_RELEASE}")
 
     # Check for insufficient uploaded firmware images and escalate if necessary
     if [ $(echo "${LIST_IMAGES}" | wc -l) -lt "${MINIMUM_FIRMWARE}" ] ; then
-      log "warn" "handle_firmware_path: Fewer than \"${MINIMUM_FIRMWARE}\" images uploaded."
+      trace "handle_firmware_path: Fewer than \"${MINIMUM_FIRMWARE}\" images uploaded."
       exit_and_escalate_to_TAC_engineer "/firmware requires manual inspection. Fault found with fewer than \"${MINIMUM_FIRMWARE}\" uploaded images."
     else
       # Parse details of uploaded software releases
-      log "info" "handle_firmware_path: Parsing software release details."
+      trace "handle_firmware_path: Parsing software release details."
       local LIST_RELEASES=$(echo "${LIST_IMAGES}" | sed 's#\(n9000[^0-9][^0-9]*\)[0-9]#\1#g' \
                     | egrep -o "[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z]" | sort -n -r | uniq)
 
       # Display the list of available software releases
-      display "Available software releases:"
+      info "Available software releases:"
       local CPT_FIRMWARE=0
       local SOFTWARE_RELEASES=()
 
@@ -1733,33 +1646,30 @@ handle_firmware_path() {
       for LINE in ${LIST_RELEASES} ; do
         CPT_FIRMWARE=$(( ${CPT_FIRMWARE} +1 ))
         SOFTWARE_RELEASES[${CPT_FIRMWARE}]="${LINE}"
-        echo "${CPT_FIRMWARE}) ${LINE}"
+        echo "    ${CPT_FIRMWARE}) ${LINE}"
       done
 
       # Check for user input to delete specific software releases
       if [ "${CPT_FIRMWARE}" -gt 0 ] ; then
-        log "info" "handle_firmware_path: Prompting user for releases deletion."
-        echo ""
-        prompt_for_yes_no "Would you like to delete specific releases?"
+        trace "handle_firmware_path: Prompting user for releases deletion."
+        prompt_for_yes_no "    Would you like to delete specific releases?"
 
         if [ "${BOOLEAN}" == "y" ] ; then
-          echo ""
-          prompt_select_from_range "Select the releases to be deleted (e.g., 2,3-5): " "1" "${CPT_FIRMWARE}"
+          prompt_select_from_range "    Select the releases to be deleted (e.g., 2,3-5): " "1" "${CPT_FIRMWARE}"
           local DELETE_RELEASES=${READ_VALUE}
 
           # Process deletion for each selected release
           for DELETE_RELEASE in $(echo "${DELETE_RELEASES}") ; do
 
             if [ "${DELETE_RELEASE}" -ge 1 ] && [ "${DELETE_RELEASE}" -le "${CPT_FIRMWARE}" ] ; then
-              log "info" "handle_firmware_path: Confirming deletion for release: ${SOFTWARE_RELEASES[${DELETE_RELEASE}]}."
-              echo ""
-              prompt_for_yes_no "Please confirm the deletion of release: ${SOFTWARE_RELEASES[${DELETE_RELEASE}]}"
+              trace "handle_firmware_path: Confirming deletion for release: ${SOFTWARE_RELEASES[${DELETE_RELEASE}]}."
+              prompt_for_yes_no "    Please confirm the deletion of release: ${SOFTWARE_RELEASES[${DELETE_RELEASE}]}"
               
               # Find matching images for deletion and process deletion
               if [ "${BOOLEAN}" == "y" ] ; then
                 local DELETE_IMAGES=$(echo "${LIST_IMAGES}" | egrep "${SOFTWARE_RELEASES[${DELETE_RELEASE}]}")
                 for DELETE_IMAGE in ${DELETE_IMAGES} ; do
-                  log "info" "handle_firmware_path: Sending deletion request for ${DELETE_IMAGE}."
+                  trace "handle_firmware_path: Sending deletion request for ${DELETE_IMAGE}."
 
                   local HTTP_RESPONSE=$(icurl -k -g -H "Content-Type: application/xml" -H "Accept: application/xml" -X POST \
                                 "https://127.0.0.1/api/mo/${DELETE_IMAGE}.xml" --data "<firmwareFirmware deleteIt=\"yes\"/>" \
@@ -1770,10 +1680,10 @@ handle_firmware_path() {
 
                   # Verify successful image deletion
                   if [ "$(echo "${HTTP_RESPONSE}" | egrep -i "200 OK" | wc -l )" -gt 0 ] ; then
-                    log "info" "handle_firmware_path: Successfully deleted ${DELETE_IMAGE}. HTTP Response: ${HTTP_RESPONSE}"
-                    display "API: https://127.0.0.1/api/mo/${DELETE_IMAGE}.xml | HTTP Response: ${HTTP_RESPONSE}"
+                    trace "handle_firmware_path: Successfully deleted ${DELETE_IMAGE}. HTTP Response: ${HTTP_RESPONSE}"
+                    success "API: https://127.0.0.1/api/mo/${DELETE_IMAGE}.xml | HTTP Response: ${HTTP_RESPONSE}"
                   else
-                    log "err" "handle_firmware_path: Failed to delete ${DELETE_IMAGE}. HTTP Response: ${HTTP_RESPONSE}."
+                    trace "handle_firmware_path: Failed to delete ${DELETE_IMAGE}. HTTP Response: ${HTTP_RESPONSE}."
                     exit_and_escalate_to_TAC_engineer "handle_firmware_path: Failed to delete ${DELETE_IMAGE}. HTTP Response: ${HTTP_RESPONSE}."
                   fi
 
@@ -1827,15 +1737,13 @@ handle_techsupport_path() {
   # Local variable for the passed directory path
   local PATH_MOUNT="$1"
   local FAULT="$2"
-  local SPACE_DELIMITER="_______________________-_______________________"
-  local TAB_DELIMITER="=======================-========================"
 
   # Log the initiation of the process
-  log "info" "Starting the process for the /techsupport path."
+  trace "Starting the process for the /techsupport path."
 
   # Validate that the correct number of arguments are provided
   if [ "$#" -ne 2 ] ; then
-    log "err" "Invalid number of arguments provided. Expected 2, received $#."
+    trace "Invalid number of arguments provided. Expected 2, received $#."
     exit_due_to_code_issue
   fi
 
@@ -1844,51 +1752,51 @@ handle_techsupport_path() {
 
   # Operations specific to /techsupport path
   if [ "${PATH_MOUNT}" == "/techsupport" ] ; then
-    log "info" "Working on the /techsupport path."
+    trace "Working on the /techsupport path."
 
     # Retrieve the list of tech support files present on the controller
-    local LIST_TECHSUPPORTS=$(icurl -k "https://127.0.0.1/api/class/dbgexpTechSupStatus.json" --silent \
-                    | jq '.imdata[].dbgexpTechSupStatus.attributes | select( .dataType | match("techSupport")) | select( .exportedToController | match("yes")).dn' \
-                    | sed "s#\"##g")
+    local LIST_TECHSUPPORTS=$(icurl -k "https://127.0.0.1/api/class/dbgexpTechSupStatus.xml" --silent \
+                    | xmllint --xpath '/imdata/dbgexpCoreStatus[@dataType="techSupport" and @exportedToController="yes"]/@dn' - \
+                    | sed 's/dn=\|\"//g' | tr  ' ' '\n')
 
     # Alert if there are fewer than the threshold tech support files
     if [ $(echo "${LIST_TECHSUPPORTS}" | wc -l) -lt "${MINIMUM_TECHSUPPORT}" ] ; then
-      log "warn" "Detected fewer than 6 techsupport files."
-      exit_and_escalate_to_TAC_engineer "/techsupport needs manual inspection due to fewer than 9 tech support files."
+      alert "    Detected fewer than 6 techsupport files."
+      exit_and_escalate_to_TAC_engineer "    /techsupport needs manual inspection due to fewer than 9 tech support files."
     else
       # Extract and sort timestamps of the tech support files
-      local LIST_TIMESTAMP=$(echo "${LIST_TECHSUPPORTS}" | sed -e "s#^expcont/expstatus-tsod-\([^/][^/]*\)/inst-\([^.][^.]*\)\..*#\1${SPACE_DELIMITER}==>${SPACE_DELIMITER}\2#g" | sort | uniq)
+      local LIST_TIMESTAMP=$(echo "${LIST_TECHSUPPORTS}")
 
       # Display the sorted tech support files
-      display "Tech support available(s) for the deletion(s):"
+      info "Tech support available(s) for the deletion(s):"
       local TECHSUPPORT_COUNT=0
       local TECHSUPPORT_ENTRIES=()
 
       for LINE in ${LIST_TIMESTAMP} ; do
         TECHSUPPORT_COUNT=$(( ${TECHSUPPORT_COUNT} +1 ))
-        TECHSUPPORT_ENTRIES[${TECHSUPPORT_COUNT}]=$(echo "${LINE}" | sed -e "s#${SPACE_DELIMITER}# #g" -e "s#${TAB_DELIMITER}#\t#g")
-        echo "${TECHSUPPORT_COUNT}) ${TECHSUPPORT_ENTRIES[${TECHSUPPORT_COUNT}]}"
+        TECHSUPPORT_ENTRIES[${TECHSUPPORT_COUNT}]=$(echo "${LINE}")
+        echo "    ${TECHSUPPORT_COUNT}) ${TECHSUPPORT_ENTRIES[${TECHSUPPORT_COUNT}]}"
       done
 
       # Seek user input for potential deletions of tech support files
       if [ "${TECHSUPPORT_COUNT}" -gt 0 ] ; then
-        log "info" "Prompting user for tech support file deletions."
-        prompt_for_yes_no "Would you like to delete any of the tech support files?"
+        trace "Prompting user for tech support file deletions."
+        prompt_for_yes_no "    Would you like to delete any of the tech support files?"
 
         if [ "${BOOLEAN}" == "y" ] ; then
-          prompt_select_from_range "Select the files to be deleted (e.g., 2,3-5): " "1" "${TECHSUPPORT_COUNT}"
+          prompt_select_from_range "    Select the files to be deleted (e.g., 2,3-5): " "1" "${TECHSUPPORT_COUNT}"
           local DELETE_SELECTIONS=${READ_VALUE}
 
           for DELETE_INDEX in $(echo "${DELETE_SELECTIONS}") ; do
-            log "info" "Confirming deletion for tech support: ${TECHSUPPORT_ENTRIES[${DELETE_INDEX}]}."
-            prompt_for_yes_no "Please confirm the deletion of tech support: ${TECHSUPPORT_ENTRIES[${DELETE_INDEX}]}"
+            trace "Confirming deletion for tech support: ${TECHSUPPORT_ENTRIES[${DELETE_INDEX}]}."
+            prompt_for_yes_no "    Please confirm the deletion of tech support: ${TECHSUPPORT_ENTRIES[${DELETE_INDEX}]}"
               
             if [ "${BOOLEAN}" == "y" ] ; then
                 # Extract the files corresponding to the chosen index for deletion
                 local FILES_TO_DELETE=$(echo "${LIST_TECHSUPPORTS}" | egrep "$(echo "${TECHSUPPORT_ENTRIES[${DELETE_INDEX}]}" | egrep -o "[^ ]+$")")
 
                 for FILE_TO_DELETE in ${FILES_TO_DELETE} ; do
-                    log "info" "Sending request to delete ${FILE_TO_DELETE}."
+                    trace "Sending request to delete ${FILE_TO_DELETE}."
 
                     # Sending a deletion request for the tech support file
                     local HTTP_RESPONSE=$(icurl -k -g -H "Content-Type: application/xml" -H "Accept: application/xml" -X POST \
@@ -1900,13 +1808,13 @@ handle_techsupport_path() {
 
                     # Verify if the tech support file was successfully deleted
                     if [ "$(echo "${HTTP_RESPONSE}" | egrep -i "200 OK" | wc -l )" -gt 0 ] ; then
-                        log "info" "Successfully deleted ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}"
-                        display "API: https://127.0.0.1/api/mo/${FILE_TO_DELETE}.xml | HTTP Response: ${HTTP_RESPONSE}"
+                        trace "Successfully deleted ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}"
+                        success "    API: https://127.0.0.1/api/mo/${FILE_TO_DELETE}.xml | HTTP Response: ${HTTP_RESPONSE}"
 
                      
                     else
-                        log "err" "Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
-                        exit_and_escalate_to_TAC_engineer "Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
+                        alert "    Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
+                        exit_and_escalate_to_TAC_engineer "    Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
                     fi
 
                     # Update the global records for deleted files
@@ -1955,16 +1863,12 @@ handle_coredump_path() {
   local PATH_MOUNT="$1"
   local FAULT="$2"
   
-  # Delimiters used for processing core dump data
-  local SPACE_DELIMITER="_______________________-_______________________"
-  local TAB_DELIMITER="=======================-========================"
-  
   # Start logging the process
-  log "info" "Starting the process for the /techsupport path."
+  trace "Starting the process for the /techsupport path."
 
   # Ensure correct argument count
   if [ "$#" -ne 2 ] ; then
-    log "err" "Invalid number of arguments provided. Expected 2, received $#."
+    trace "Invalid number of arguments provided. Expected 2, received $#."
     exit_due_to_code_issue
   fi
 
@@ -1973,42 +1877,37 @@ handle_coredump_path() {
 
   # Proceed only if the provided path is /techsupport
   if [ "${PATH_MOUNT}" == "/techsupport" ] ; then
-    log "info" "Working on the /techsupport path."
+    trace "Working on the /techsupport path."
 
     # Fetch the list of core dumps present on the controller
-    local LIST_COREDUMPS=$(icurl -k "https://127.0.0.1/api/class/dbgexpCoreStatus.json" --silent \
-                    | jq '.imdata[].dbgexpCoreStatus.attributes | select( .dataType | match("core")) | select( .exportedToController | match("yes")).dn' \
-                    | sed "s#\"##g")
-
-    # Process and list the available core dumps with their timestamps
-    local LIST_TIMESTAMP=$(echo "${LIST_COREDUMPS}" \
-    | sed -e "s#^expcont/expstatus-coreexp-\([^/][^/]*\)/inst-\([^.][^.]*\)[^/][^/]*/corenode-\([0-9][0-9]*\)#\1${SPACE_DELIMITER}===>${SPACE_DELIMITER}\2${SPACE_DELIMITER}===>${SPACE_DELIMITER}node-\3#g" \
-    | sort | uniq)
+    local LIST_COREDUMPS=$(icurl -k "https://127.0.0.1/api/class/dbgexpCoreStatus.xml" --silent \
+                    | xmllint --xpath '/imdata/dbgexpCoreStatus[@dataType="cores" and @exportedToController="yes"]/@dn' - \
+                    | sed 's/dn=\|\"//g' | tr  ' ' '\n')
 
     # Display the available core dumps
-    display "Core dumps available(s) for the deletion(s):"
+    info "Core dumps available(s) for the deletion(s):"
     local COREDUMP_COUNT=0
     local COREDUMP_ENTRIES=()
 
-    for LINE in ${LIST_TIMESTAMP} ; do
+    for LINE in ${LIST_COREDUMPS} ; do
       COREDUMP_COUNT=$(( ${COREDUMP_COUNT} + 1 ))
-      COREDUMP_ENTRIES[${COREDUMP_COUNT}]=$(echo "${LINE}" | sed -e "s#${SPACE_DELIMITER}# #g" -e "s#${TAB_DELIMITER}#\t#g")
-      echo "${COREDUMP_COUNT}) ${COREDUMP_ENTRIES[${COREDUMP_COUNT}]}"
+      COREDUMP_ENTRIES[${COREDUMP_COUNT}]=${LINE}
+      echo "    ${COREDUMP_COUNT}) ${LINE}"
     done
 
     # If any core dumps are available, prompt user for possible deletions
     if [ "${COREDUMP_COUNT}" -gt 0 ] ; then
-      log "info" "Prompting user for core dump deletions."
-      prompt_for_yes_no "Would you like to delete any of the core dumps?"
+      trace "Prompting user for core dump deletions."
+      prompt_for_yes_no "    Would you like to delete any of the core dumps?"
 
       if [ "${BOOLEAN}" == "y" ] ; then
-        prompt_select_from_range "Select the files to be deleted (e.g., 2,3-5): " "1" "${COREDUMP_COUNT}"
+        prompt_select_from_range "    Select the files to be deleted (e.g., 2,3-5): " "1" "${COREDUMP_COUNT}"
         local DELETE_SELECTIONS=${READ_VALUE}
 
         # Process deletions for each user-selected core dump
         for DELETE_INDEX in $(echo "${DELETE_SELECTIONS}") ; do
-          log "info" "Confirming deletion for core dump: ${COREDUMP_ENTRIES[${DELETE_INDEX}]}."
-          prompt_for_yes_no "Please confirm the deletion of core dump: ${COREDUMP_ENTRIES[${DELETE_INDEX}]}"
+          trace "Confirming deletion for core dump: ${COREDUMP_ENTRIES[${DELETE_INDEX}]}."
+          prompt_for_yes_no "    Please confirm the deletion of core dump: ${COREDUMP_ENTRIES[${DELETE_INDEX}]}"
             
           if [ "${BOOLEAN}" == "y" ] ; then
               # Extract files for deletion based on user confirmation
@@ -2017,9 +1916,11 @@ handle_coredump_path() {
               egrep "$(echo "${COREDUMP_ENTRIES[${DELETE_INDEX}]}" | egrep -o "node-[0-9]+]")"
               )
 
+              trace "${FILES_TO_DELETE}"
+
               # Process deletion for each file
               for FILE_TO_DELETE in ${FILES_TO_DELETE} ; do
-                  log "info" "Sending request to delete ${FILE_TO_DELETE}."
+                  trace "Sending request to delete ${FILE_TO_DELETE}."
 
                   # Initiate core dump deletion on the controller
                   local HTTP_RESPONSE=$(icurl -k -g -H "Content-Type: application/xml" -H "Accept: application/xml" -X POST \
@@ -2031,10 +1932,10 @@ handle_coredump_path() {
 
                   # Verify the deletion status
                   if [ "$(echo "${HTTP_RESPONSE}" | egrep -i "200 OK" | wc -l )" -gt 0 ] ; then
-                      log "info" "Successfully deleted ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}"
-                      display "API: https://127.0.0.1/api/mo/${FILE_TO_DELETE}.xml | HTTP Response: ${HTTP_RESPONSE}"
+                      trace "Successfully deleted ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}"
+                      success "API: https://127.0.0.1/api/mo/${FILE_TO_DELETE}.xml | HTTP Response: ${HTTP_RESPONSE}"
                   else
-                      log "err" "Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
+                      alert "Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
                       exit_and_escalate_to_TAC_engineer "Failed to delete ${FILE_TO_DELETE}. HTTP Response: ${HTTP_RESPONSE}."
                   fi
 
@@ -2059,7 +1960,6 @@ handle_coredump_path() {
 #   DN: The Distinguished Name (DN) of the fault to address.
 treat_fault() {
   if [ "$#" -eq "1" ] ; then
-    local SPACE_DELIMITER="_______________________-_______________________"
 
     local DN="$1"
     BOOLEAN_SLEEP=0
@@ -2069,7 +1969,7 @@ treat_fault() {
     if [ "${BOOLEAN}" == "true" ] ; then
 
       # Display the fault being handled.
-      display "Fault: ${DN}"
+      subtitle "Handling Fault: ${DN}"
 
       # Extract node ID from DN.
       extract_node_id_from_dn "${DN}"
@@ -2077,7 +1977,7 @@ treat_fault() {
       # Configure SSH.
       configure_remote_ssh
 
-      log "info" "treat_fault: Handling fault with DN: ${DN}. Software Release: ${REMOTE_SOFTWARE_RELEASE}"
+      trace "treat_fault: Handling fault with DN: ${DN}. Software Release: ${REMOTE_SOFTWARE_RELEASE}"
 
       # Parse DN to retrieve mount details.
       local DEV_MOUNT=$(echo "${DN}" | egrep -o "\-f-\[[^]]+]" | sed -e "s#-f-\[\([^]][^]]*\)]#\1#g")
@@ -2099,32 +1999,33 @@ treat_fault() {
           
       # Determine the executor of the script.
       if [ "${TAC_USER}" != true ] ; then
-        log "info" "treat_fault: Operating in USER MODE."
+        trace "treat_fault: Operating in USER MODE."
 
         # Check repositories using REST API: Techsupport, Firmware, Cores
         if [ "${PATH_MOUNT}" == "/firmware" ] ; then
 
-          display "Directory usage for ${PATH_MOUNT}"
+          alert "High directory usage for ${PATH_MOUNT}"
           send_remote_command "df -h ${PATH_MOUNT}"
-          echo "${READ_VALUE}"
+          trace "${READ_VALUE}"
 
-          display "Firmware checks"
+          info "Checking installed software releases."
 
           # Handle the firmware checks and possible deletions based on the given path.
           handle_firmware_path "${PATH_MOUNT}" 
 
         elif [ "${PATH_MOUNT}" == "/techsupport" ] ; then
 
-          display "Directory usage for /data/techsupport"
+          
+          alert  "High directory usage for /data/techsupport"
           send_remote_command "df -h /data/techsupport"
-          echo "${READ_VALUE}"
+          trace "${READ_VALUE}"
 
-          display "Techsupport checks"
+          info "Checking Techsupport Bundles"
 
           # Handle the tech support checks and possible deletions based on the given path
           handle_techsupport_path "${PATH_MOUNT}" "${DN}"
 
-          display "Core dump checks"
+          info "Checking Core Dumps"
 
           # Handle the core dump checks and possible deletions based on the given path
           handle_coredump_path "${PATH_MOUNT}" "${DN}"
@@ -2136,7 +2037,7 @@ treat_fault() {
     else
 
       # Log that the fault has been cleared.
-      log "info" "treat_fault: Fault ${DN} has been cleared."
+      trace "treat_fault: Fault ${DN} has been cleared."
     
     fi
 
@@ -2157,12 +2058,11 @@ treat_fault() {
 
 # Process storage faults on a controller.
 main(){
-  log "info" "main: Starting fault processing."
 
   # Ensure the current node is a controller.
   if [ "${LOCAL_NODE_TYPE}" != "controller" ] ; then
-    log "err" "main: Script execution limited to controllers only."
-    display "This script is exclusive for controllers."
+    trace "main: Script execution limited to controllers only."
+    title "This script is exclusive for controllers."
     return
   fi
 
@@ -2171,27 +2071,30 @@ main(){
   RECORD_FILES_CPT=0
   FAULTS="F1527 F1528 F1529"
   HIT_FAULT="false"  # Flag to detect faults.
-
-  log "info" "main: Retrieving Distinguished Names for faults: ${FAULTS}"
   
-  display "loading faults F1527, F1528 and F1529"
+  subtitle "loading faults F1527, F1528 and F1529"
 
   moquery_dn_faults "${FAULTS}"
   DNS="${READ_VALUE}"
 
   # Check for the presence of faults.
   if [ -z "${DNS}" ] ; then
-    log "info" "main: No faults detected for codes: ${FAULTS}"
-    echo -e "\nNo faults were detected. Please respond to Sherlock Holmes at <noreply@cisco.com> with the following information:\n"
-    display "Sherlock, the faults F1527, F1528, and F1529 were not detected."
+    trace "main: No faults detected for codes: ${FAULTS}"
+    echo -e "\nNo faults were detected. Please respond to Sherlock Holmes at <sherholm@cisco.com> with the following information:\n"
+    info "Sherlock, the faults F1527, F1528, and F1529 were not detected."
     echo -e "\nThank you.\n----------\n\n"
   else
-    log "info" "main: $(echo "${DNS}" | tr ' ' '\n' | wc -l) detected faults for code: ${FAULTS}"
+    trace "main: $(echo "${DNS}" | tr ' ' '\n' | wc -l) detected faults for code: ${FAULTS}"
 
     # Display faults according to their fault codes.
     local FAULT
     for FAULT in $(echo "${FAULTS}") ; do 
-      display "${FAULT}: $(echo "${DNS}" | tr ' ' '\n' | egrep "${FAULT}$" | wc -l) fault(s) detected."
+      COUNT=$(echo "${DNS}" | tr ' ' '\n' | egrep "${FAULT}$" | wc -l)
+      if [ "${COUNT}" == 0 ] ; then
+        success "${FAULT}: $(echo "${DNS}" | tr ' ' '\n' | egrep "${FAULT}$" | wc -l) fault(s) detected."
+      else 
+        alert "${FAULT}: $(echo "${DNS}" | tr ' ' '\n' | egrep "${FAULT}$" | wc -l) fault(s) detected."
+      fi
     done
     unset FAULT
 
@@ -2203,25 +2106,23 @@ main(){
 
   # If faults were initially detected, check if they've been fixed.
   if [ "${HIT_FAULT}" == "true" ] ; then
-    log "info" "main: Verifying if detected faults have been fixed."
+    trace "main: Verifying if detected faults have been fixed."
     moquery_dn_faults "${FAULTS}"
     DNS="${READ_VALUE}"
 
     if [ -z "${DNS}" ] ; then
 
       # Display separation lines and spaces for clarity
-      echo -e "\n\n ====> \n\n"
 
-      log "info" "main: All faults have been fixed."
-      echo -e "\nAll the faults have been cleared. Please respond to Sherlock Holmes at <noreply@cisco.com> with the following information:\n"
-      display "Sherlock, the faults F1527, F1528, and F1529 have been cleared."
+      trace "main: All faults have been fixed."
+      success "Please respond to Sherlock Holmes at <sherholm@cisco.com>\nSherlock, the faults F1527, F1528, and F1529 have been cleared."
       
       # Detail files removed due to faults.
       while [ "${RECORD_FILES_CPT}" -gt 0 ] ; do
         RECORD_FILES_CPT=$((RECORD_FILES_CPT - 1))
         DN=$(echo "${RECORD_FILES[${RECORD_FILES_CPT}]}" | awk -F ':' '{print $1}')
         FILE=$(echo "${RECORD_FILES[${RECORD_FILES_CPT}]}" | awk -F ':' '{print $2}')
-        display "Fault: ${DN} - File removed: ${FILE}"
+        trace "Fault: ${DN} - File removed: ${FILE}"
       done
       
       # Detail detected defects.
@@ -2231,7 +2132,7 @@ main(){
         DEFECT_NODE=$(echo "${STORE_DEFECT_CSCwe09535[${STORE_DEFECT_CSCwe09535_CPT}]}" | awk -F ':' '{print $1}')
         DEFECT_NAME=$(echo "${STORE_DEFECT_CSCwe09535[${STORE_DEFECT_CSCwe09535_CPT}]}" | awk -F ':' '{print $2}')
         DEFECT_STATUS=$(echo "${STORE_DEFECT_CSCwe09535[${STORE_DEFECT_CSCwe09535_CPT}]}"| awk -F ':' '{print $3}')
-        display "Defect: ${DEFECT_NAME} - Node ID: ${DEFECT_NODE} - Status: ${DEFECT_STATUS}"
+        alert "Defect: ${DEFECT_NAME} - Node ID: ${DEFECT_NODE} - Status: ${DEFECT_STATUS}"
       done
 
       while [ "${STORE_DEFECT_CSCvt98738_CPT}" -gt 0 ] ; do
@@ -2239,7 +2140,7 @@ main(){
         DEFECT_NODE=$(echo "${STORE_DEFECT_CSCvt98738[${STORE_DEFECT_CSCvt98738_CPT}]}" | awk -F ':' '{print $1}')
         DEFECT_NAME=$(echo "${STORE_DEFECT_CSCvt98738[${STORE_DEFECT_CSCvt98738_CPT}]}" | awk -F ':' '{print $2}')
         DEFECT_STATUS=$(echo "${STORE_DEFECT_CSCvt98738[${STORE_DEFECT_CSCvt98738_CPT}]}"| awk -F ':' '{print $3}')
-        display "Defect: ${DEFECT_NAME} - Node ID: ${DEFECT_NODE} - Status: ${DEFECT_STATUS}"
+        alert "Defect: ${DEFECT_NAME} - Node ID: ${DEFECT_NODE} - Status: ${DEFECT_STATUS}"
       done
 
       while [ "${STORE_DEFECT_CSCvn13119_CPT}" -gt 0 ] ; do
@@ -2247,35 +2148,22 @@ main(){
         DEFECT_NODE=$(echo "${STORE_DEFECT_CSCvn13119[${STORE_DEFECT_CSCvn13119_CPT}]}" | awk -F ':' '{print $1}')
         DEFECT_NAME=$(echo "${STORE_DEFECT_CSCvn13119[${STORE_DEFECT_CSCvn13119_CPT}]}" | awk -F ':' '{print $2}')
         DEFECT_STATUS=$(echo "${STORE_DEFECT_CSCvn13119[${STORE_DEFECT_CSCvn13119_CPT}]}"| awk -F ':' '{print $3}')
-        display "Defect: ${DEFECT_NAME} - Node ID: ${DEFECT_NODE} - Status: ${DEFECT_STATUS}"
+        alert "Defect: ${DEFECT_NAME} - Node ID: ${DEFECT_NODE} - Status: ${DEFECT_STATUS}"
       done
-
-      echo -e "\nThank you.\n----------"
-
-      echo -e "\n\n <==== \n\n"
 
     # The defect CSCwe09535 needs a maintenance window to be fixed.
     elif [ "${STORE_DEFECT_CSCwe09535_CPT}" -gt 0 ] ; then 
 
       # Display separation lines and spaces for clarity
-      echo -e "\n\n ====> \n\n"
-
-      log "info" "main: a maintaince windows is required for the defect CSCwe09535 to clear the fault \"${DNS}\"."
-      echo -e "\nA maintenance windows is required. Please respond to Sherlock Holmes at <noreply@cisco.com> with the following information:\n"
-      display "Sherlock, we hit the defect CSCwe09535 meaning a maitenance windows with the TAC engineer is required to clear the fault(s) below."
-
+      trace "main: confirmed defect CSCwe09535 \"${DNS}\"."
+      alert "Please respond to Sherlock Holmes at <sherholm@cisco.com>\nSherlock, we confirmed hitting defect CSCwe09535 meaning a Webex with a TAC engineer is required to clear the fault(s)."
 
       for DN in $(echo "${DNS}") ; do
-        display "Fault: ${DN}"
+        info "Fault: ${DN}"
       done
 
-      echo -e "\nThank you.\n----------"
-
-      echo -e "\n\n <==== \n\n"
-
-
     else
-      log "err" "main: Remaining unaddressed faults detected."
+      trace "main: Remaining unaddressed faults detected."
       exit_and_escalate_to_TAC_engineer "The faults ${DNS} are still remaining."
     fi
   fi
@@ -2291,9 +2179,9 @@ if [ "${TAC_USER}" == "true" ] ; then
 fi
 
 # Display the script's header.
-display "Sherlock Campaign - Exceeded Data Storage Issue"
+title "Sherlock Campaign - Exceeded Data Storage Issue"
 
-display "Loading node configuration"
+subtitle "Loading node configuration"
 
 # Gathering local node details.
 gather_local_node_details
