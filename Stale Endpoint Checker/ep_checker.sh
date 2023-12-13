@@ -816,7 +816,6 @@ _get_tunnel_info
 log "Getting vtep info if applicable..."
 _get_vtep_info
 if [[ $SCOPE == "vrf" ]]; then
-  _get_vtep_info
   log "Building database of ipv4 endpoint learns..."
   _get_l3_ep_info
   log "Checking for ipv4 endpoint incorrect learns.."
