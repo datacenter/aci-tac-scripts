@@ -27,7 +27,7 @@ This tool is intended to automate idenfying any stale or incorrect remote endpoi
 
 # Limitations
 - This script will not be able to detect incorrect endpoint learns when a remote learn is pointing to a remote site, unicast etep.
-- This script will also not be able to detect incorrect endpoint learns if the remote lear is on a Remote Leaf
+- This script will also not be able to detect incorrect endpoint learns if a remote learn points to the TEP of a Remote Leaf
 
 # Example Usage
 ```
