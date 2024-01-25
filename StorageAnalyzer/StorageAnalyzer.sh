@@ -573,13 +573,13 @@ prompt_for_user_credentials() {
 
     # If the USER variable is empty, prompt the user for it
     if [ -z "${USER}" ] ; then
-      prompt_until_match_or_default "  APIC password is required to continue: " "..*" "admin"
+      prompt_until_match_or_default " Please enter the username: " "..*" "admin"
       USER=${READ_VALUE}
     fi
 
     # If the PASSWORD variable is empty, prompt the user for it
     if [ -z "${PASSWORD}" ] ; then
-      read -s -p  "  Please enter the password : " PASSWORD
+      read -s -p  "  Please enter the password: " PASSWORD
       echo ""
       # For security reasons, do not log the actual password
       trace "prompt_for_user_credentials: User provided a password for the username: \"${USER}\"."
