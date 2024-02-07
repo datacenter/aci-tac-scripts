@@ -1,0 +1,161 @@
+'''
+This script is designed to validate the postUpgradeCb for those concerned classes are invoked properly. 
+Credit goes to Giovanni for gudiance and review, and Lovkesh for test.
+Author Welkin, feedback is welcomed via E-mail to tianhe@cisco.com.
+'''
+
+import argparse
+import logging
+import subprocess
+import json
+import sys
+import re
+
+logger = logging.getLogger()
+
+NewMoDict = {
+    "infraAssocEncapInstDef":
+        {
+            "CreatedBy":"infraRsToEncapInstDef",
+            "SinceVersion":"5.2(4d)",
+        },
+    "infraRsConnectivityProfileOpt":
+        {
+            "CreatedBy":"infraRsConnectivityProfile",
+            "SinceVersion":"5.2(4d)",
+        },
+    "fvSlaDef":
+        {
+            "CreatedBy":"fvIPSLAMonitoringPol",
+            "SinceVersion":"4.1(1i)",
+        },
+    "infraImplicitSetPol":
+        {
+            "CreatedBy":"",
+            "SinceVersion":"3.2(10e)"
+        },
+    "infraRsToImplicitSetPol":
+        {
+            "CreatedBy":"infraImplicitSetPol",
+            "SinceVersion":"3.2(10e)"
+        }
+}
+
+def setup_logger(logger, level, logfile):
+    logging_level = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warn": logging.WARNING,
+    }.get(level)
+    logger.setLevel(logging_level)
+    logger_handler = logging.StreamHandler(sys.stdout)
+    fmt = "%(asctime)s.%(msecs).03d||%(levelname)s||"
+    fmt += "(%(lineno)d)||%(message)s"
+    logger_handler.setFormatter(logging.Formatter(fmt=fmt, datefmt="%Z %Y-%m-%dT%H:%M:%S"))
+    logger.addHandler(logger_handler)
+
+    filehandler = logging.FileHandler(logfile)
+    filehandler.setLevel(logging_level)
+    filehandler.setFormatter(logging.Formatter(
+        fmt=fmt,
+        datefmt="%Z %Y-%m-%dT%H:%M:%S")
+    )
+    logger.addHandler(filehandler)
+
+
+class AciVersion():
+    v_regex = r'(?P<major1>\d)\.(?P<major2>\d)(?:\.|\()(?P<maint>\d+)\.?(?P<patch>(?:[a-b]|[0-9a-z]+))\)?'
+    def __init__(self, version):
+        self.original = version
+        v = re.search(self.v_regex, version)
+        self.version = ('{major1}.{major2}({maint}{patch})'
+                        .format(**v.groupdict()) if v else None)
+        self.dot_version = ("{major1}.{major2}.{maint}{patch}"
+                            .format(**v.groupdict()) if v else None)
+        self.simple_version = ("{major1}.{major2}({maint})"
+                               .format(**v.groupdict()) if v else None)
+        self.major1 = v.group('major1') if v else None
+        self.major2 = v.group('major2') if v else None
+        self.maint = v.group('maint') if v else None
+        self.patch = v.group('patch') if v else None
+        self.regex = v
+        if not v:
+            raise RuntimeError("Parsing failure of ACI version `%s`", version)
+
+    def __str__(self):
+        return self.version
+
+    def older_than(self, version):
+        v = re.search(self.v_regex, version)
+        if not v: return None
+        for i in range(1, len(v.groups())+1):
+            if i < 4:
+                if int(self.regex.group(i)) > int(v.group(i)): return False
+                elif int(self.regex.group(i)) < int(v.group(i)): return True
+            if i == 4:
+                if self.regex.group(i) > v.group(i): return False
+                elif self.regex.group(i) < v.group(i): return True
+        return False
+
+    def newer_than(self, version):
+        return not self.older_than(version) and not self.same_as(version)
+
+    def same_as(self, version):
+        v = re.search(self.v_regex, version)
+        ver = ('{major1}.{major2}({maint}{patch})'
+               .format(**v.groupdict()) if v else None)
+        return self.version == ver
+    
+
+def icurl(apitype, query):
+    if apitype not in ['class', 'mo']:
+        print('invalid API type - %s' % apitype)
+        return []
+    uri = 'http://127.0.0.1:7777/api/{}/{}'.format(apitype, query)
+    cmd = ['icurl', '-gs', uri]
+    logging.debug('cmd = ' + ' '.join(cmd))
+    response = subprocess.check_output(cmd)
+    logging.debug('response: ' + str(response))
+    imdata = json.loads(response)['imdata']
+    if imdata and "error" in imdata[0].keys():
+        raise Exception('API call failed! Check debug log')
+    else:
+        return imdata
+
+
+def get_current_version():
+    firmwares = icurl('class', 'firmwareCtrlrRunning.json')
+    for firmware in firmwares:
+        if 'node-1' in firmware['firmwareCtrlrRunning']['attributes']['dn']:
+            apic1_version = firmware['firmwareCtrlrRunning']['attributes']['version']
+            break
+    current_version = AciVersion(apic1_version)
+    return current_version
+
+def postUpgradeCheck():
+    cversion = get_current_version().__str__()
+    for NewMo in NewMoDict:
+        SinceVersion = AciVersion(NewMoDict[NewMo]['SinceVersion'])
+        CreatedByMo = NewMoDict[NewMo]['CreatedBy']
+        if CreatedByMo=="":
+            CreatedByMo=NewMo
+        if SinceVersion.same_as(cversion) or SinceVersion.older_than(cversion):
+            MoCount = icurl('class',CreatedByMo+".json"+"?rsp-subtree-include=count")
+            CreatedByMoCount = int(MoCount[0]['moCount']['attributes']['count'])
+            MoCount = icurl("class",NewMo+".json"+"?rsp-subtree-include=count")
+            NewMoCount = int(MoCount[0]['moCount']['attributes']['count'])
+            if CreatedByMoCount!=NewMoCount:
+                logger.warning("%s MoCount %s and %s MoCount %s Mismatch,postUpgradeCb Investigation is required."%(CreatedByMo,CreatedByMoCount,NewMo,NewMoCount))
+            else:
+                logger.info("%s has %s Mo, postUpgradeCb successfully created %s %s"%(CreatedByMo,CreatedByMoCount,NewMoCount,NewMo))
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-d", dest="debug", choices=["debug", "info", "warn"], default="info")
+
+    args = parser.parse_args()
+    setup_logger(logger,args.debug,'/data/techsupport/checkPostUpgrade.log')
+    postUpgradeCheck()
+

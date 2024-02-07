@@ -33,3 +33,7 @@ This cli-based tool automates verification and troubleshooting of many L3 multic
 ## [FTAG Viewer](https://github.com/datacenter/aci-tac-scripts/tree/main/FTAG%20Viewer)
 
 Official Fork of https://github.com/agccie/aci-ftag-viewer. This script builds and validates all forwarding trees (FTAG) within all on pods on a Cisco ACI fabric. Updated for Python3.
+
+## [APIC PostUpgradeCb Checker](https://github.com/datacenter/aci-tac-scripts/tree/main/Post-Upgrade-CB-Checker)
+
+This script query the new managed object (mo) created by postUpgradeCb function of existing class, then compare the Mo count and warning customer contact TAC for investigation if mismatch found. 
