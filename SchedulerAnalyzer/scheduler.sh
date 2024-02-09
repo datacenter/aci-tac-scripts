@@ -173,7 +173,7 @@ ask_for_password(){
         while [[ "$ret" -gt 0 && "$retry" -le 3 ]]; do
 
             read -rsp "  Enter APIC $1's password for $2 (attempt $retry/3): " apicPwd
-            sshpass -p "$apicPwd" ssh -F /dev/null -l "$2" "apic$1" -o ConnectTimeout=1 true &>/dev/null
+            sshpass -p $apicPwd ssh -F /dev/null -l "$2" "apic$1" -o ConnectTimeout=1 -o StrictHostKeyChecking=no true &>/dev/null
             ret=$?
 
             trace "SSH password test result: $ret, retry: $retry"
@@ -246,7 +246,7 @@ gather_facts(){
 
     debug "$(cat /data/data_admin/sam_exported.config)"
 
-    localApicId=$(grep -oP "^controllerID\s+=\s+\K(\d+)" /data/data_admin/sam_exported.config)
+    localApicId=$(grep "^controllerID" /data/data_admin/sam_exported.config | grep -oP '\d+$')
     trace "localApicId: $localApicId"
 
     fabricNode=$(icurl -s "http://localhost:7777/api/uni/class/fabricNode.xml?query-target-filter=eq(fabricNode.id, \"$localApicId\")" | xmllint --xpath '/imdata/fabricNode' - )
@@ -320,6 +320,8 @@ gather_facts(){
         cri="docker"
     elif command -v podman &> /dev/null; then
         cri="podman"
+    elif command -v lxc-ls &> /dev/null; then
+        cri="lxc"
     else
         cri="null"
         err "Unrecognized container runtime, aborting"
@@ -481,7 +483,7 @@ check_CSCwa45126(){
     if (( "$localApicId" == "$1" )); then
         apicLogmonProcess="$(ps -eaf | grep logmon | grep -v grep)"
     else
-        apicLogmonProcess="$(sshpass -p $apicPwd ssh -tq -l $(whoami) apic$1 \"ps -eaf | grep logmon | grep -v grep\")"
+        apicLogmonProcess="$(sshpass -p $apicPwd ssh -tq -l $(echo $USER) apic$1 \"ps -eaf | grep logmon | grep -v grep\")"
     fi
 
     debug "apicLogmonProcess: $apicLogmonProcess"
@@ -502,7 +504,7 @@ check_CSCwa45126(){
         if (( "$localApicId" == "$1" )); then
             forkRejected="$(dmesg | grep 'fork rejected by pids controller' -c)"
         else
-            forkRejected="$(sshpass -p $apicPwd ssh -tq -l $(whoami) apic$1  \"dmesg | grep 'fork rejected by pids controller' -c\")"
+            forkRejected="$(sshpass -p $apicPwd ssh -tq -l $(echo $USER) apic$1  \"dmesg | grep 'fork rejected by pids controller' -c\")"
         fi 
 
         trace "forkRejected: $forkRejected"
@@ -666,10 +668,10 @@ check_av_json_empty(){
         dmeLogUsage=$(df /var/log/dme/log | grep -oP "\K\d+(?=%)")
         trace "dmeLogUsage: $dmeLogUsage"
     else
-        avStateSize="$(sshpass -p $apicPwd ssh -tq -l $(whoami) apic$1 'stat /var/log/dme/log/av_state.json -c %s')"
+        avStateSize="$(sshpass -p $apicPwd ssh -tq -l $(echo $USER) apic$1 'stat /var/log/dme/log/av_state.json -c %s')"
         trace "avStateSize: $avStateSize"
 
-        dmeLogUsage="$(sshpass -p $apicPwd ssh -tq -l $(whoami) apic$1 'df /var/log/dme/log | grep -oP "\K\d+(?=%)"')"
+        dmeLogUsage="$(sshpass -p $apicPwd ssh -tq -l $(echo $USER) apic$1 'df /var/log/dme/log | grep -oP "\K\d+(?=%)"')"
         trace "dmeLogUsage: $dmeLogUsage"
     fi
 
@@ -792,7 +794,7 @@ main(){
 
 
             if (( "$localApicId" != "$apicId" )); then
-                ask_for_password "$apicId" "$(whoami)"
+                ask_for_password "$apicId" "$(echo $USER)"
                 if (( $? )); then
                     info "Skipped verifications for APIC $apicId" 
                     continue
