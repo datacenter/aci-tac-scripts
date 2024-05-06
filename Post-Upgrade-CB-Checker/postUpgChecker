@@ -160,9 +160,9 @@ def postUpgradeCheck():
                 if created_by_mo_count != new_mo_count:
                     logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
                     continue
-        if created_by_mo=="":
-            created_by_mo=new_mo
-        logger.info("%s has %s Mo, postUpgradeCb successfully created %s %s"%(created_by_mo,created_by_mo_count,new_mo_count,new_mo))
+            if created_by_mo=="":
+                created_by_mo=new_mo
+            logger.info("%s has %s Mo, postUpgradeCb successfully created %s %s"%(created_by_mo,created_by_mo_count,new_mo_count,new_mo))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
