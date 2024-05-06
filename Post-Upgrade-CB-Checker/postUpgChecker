@@ -13,32 +13,43 @@ import re
 
 logger = logging.getLogger()
 
-NewMoDict = {
+new_mo_dict = {
+    "compatSwitchHw":
+    {
+        "CreatedBy": "",
+        "SinceVersion": "6.0(2h)", #suppBit attribute is available from 6.0(2h)
+        "Impact": "64/32 bit image can unexpectedly pushed to switches",
+    },
     "infraAssocEncapInstDef":
-        {
-            "CreatedBy":"infraRsToEncapInstDef",
-            "SinceVersion":"5.2(4d)",
-        },
+    {
+        "CreatedBy": "infraRsToEncapInstDef",
+        "SinceVersion": "5.2(4d)",
+        "Impact": "VLAN for missing Mo will not be deployed to leaf",
+    },
     "infraRsConnectivityProfileOpt":
-        {
-            "CreatedBy":"infraRsConnectivityProfile",
-            "SinceVersion":"5.2(4d)",
-        },
+    {
+        "CreatedBy": "infraRsConnectivityProfile",
+        "SinceVersion": "5.2(4d)",
+        "Impact": "VPC for missing Mo will not be deployed to leaf",
+    },
     "fvSlaDef":
-        {
-            "CreatedBy":"fvIPSLAMonitoringPol",
-            "SinceVersion":"4.1(1i)",
-        },
+    {
+        "CreatedBy": "fvIPSLAMonitoringPol",
+        "SinceVersion": "4.1(1i)",
+        "Impact": "IPSLA monitor policy will not be deployed",
+    },
     "infraImplicitSetPol":
-        {
-            "CreatedBy":"",
-            "SinceVersion":"3.2(10e)"
-        },
+    {
+        "CreatedBy": "",
+        "SinceVersion": "3.2(10e)",
+        "Impact": "Infra implicit settings will not be deployed",
+    },
     "infraRsToImplicitSetPol":
-        {
-            "CreatedBy":"infraImplicitSetPol",
-            "SinceVersion":"3.2(10e)"
-        }
+    {
+        "CreatedBy": "infraImplicitSetPol",
+        "SinceVersion": "3.2(10e)",
+        "Impact": "Infra implicit settings will not be deployed",
+    }
 }
 
 def setup_logger(logger, level, logfile):
@@ -134,22 +145,24 @@ def get_current_version():
 
 def postUpgradeCheck():
     cversion = get_current_version().__str__()
-    for NewMo in NewMoDict:
-        SinceVersion = AciVersion(NewMoDict[NewMo]['SinceVersion'])
-        CreatedByMo = NewMoDict[NewMo]['CreatedBy']
-        if CreatedByMo=="":
-            CreatedByMo=NewMo
-        if SinceVersion.same_as(cversion) or SinceVersion.older_than(cversion):
-            MoCount = icurl('class',CreatedByMo+".json"+"?rsp-subtree-include=count")
-            CreatedByMoCount = int(MoCount[0]['moCount']['attributes']['count'])
-            MoCount = icurl("class",NewMo+".json"+"?rsp-subtree-include=count")
-            NewMoCount = int(MoCount[0]['moCount']['attributes']['count'])
-            if CreatedByMoCount!=NewMoCount:
-                logger.warning("%s MoCount %s and %s MoCount %s Mismatch,postUpgradeCb Investigation is required."%(CreatedByMo,CreatedByMoCount,NewMo,NewMoCount))
+    for new_mo in new_mo_dict:
+        SinceVersion = AciVersion(new_mo_dict[new_mo]['SinceVersion'])
+        created_by_mo = new_mo_dict[new_mo]['CreatedBy']
+        if not SinceVersion.newer_than(str(cversion)):
+            temp_new_mo_count = icurl("class", new_mo+".json?rsp-subtree-include=count")
+            new_mo_count = int(temp_new_mo_count[0]['moCount']['attributes']['count'])
+            if created_by_mo == "":
+                if new_mo_count==0:
+                    logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
             else:
-                logger.info("%s has %s Mo, postUpgradeCb successfully created %s %s"%(CreatedByMo,CreatedByMoCount,NewMoCount,NewMo))
-
-
+                temp_createdby_mo_count = icurl('class', created_by_mo+".json?rsp-subtree-include=count")
+                created_by_mo_count = int(temp_createdby_mo_count[0]['moCount']['attributes']['count'])
+                if created_by_mo_count != new_mo_count:
+                    logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
+                    continue
+        if created_by_mo=="":
+            created_by_mo=new_mo
+        logger.info("%s has %s Mo, postUpgradeCb successfully created %s %s"%(created_by_mo,created_by_mo_count,new_mo_count,new_mo))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
