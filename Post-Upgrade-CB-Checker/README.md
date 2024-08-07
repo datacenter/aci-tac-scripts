@@ -25,11 +25,13 @@ python /data/techsupport/postUpgChecker
 
 apic# python  /data/techsupport/postUpgChecker
 
-AEDT 2024-02-07T16:50:04.986||INFO||(150)||infraRsConnectivityProfile has 19 Mo, postUpgradeCb successfully created 19 infraRsConnectivityProfileOpt
-AEDT 2024-02-07T16:50:05.256||INFO||(150)||infraImplicitSetPol has 1 Mo, postUpgradeCb successfully created 1 infraRsToImplicitSetPol
-AEDT 2024-02-07T16:50:05.584||INFO||(150)||infraRsToEncapInstDef has 11 Mo, postUpgradeCb successfully created 11 infraAssocEncapInstDef
-AEDT 2024-02-07T16:50:05.859||INFO||(150)||infraImplicitSetPol has 1 Mo, postUpgradeCb successfully created 1 infraImplicitSetPol  
-AEDT 2024-02-07T16:50:06.124||INFO||(150)||fvIPSLAMonitoringPol has 1 Mo, postUpgradeCb successfully created 1 fvSlaDef 
+UTC 2024-08-07T02:34:08.741||INFO||(179)||compatSwitchHw and compatSwitchHw MoCount are both 70, postUpgradeCb executed successfully.
+UTC 2024-08-07T02:34:09.013||INFO||(179)||infraRsToInterfacePolProfile and infraRsToInterfacePolProfileOpt MoCount are both 17, postUpgradeCb executed successfully.
+UTC 2024-08-07T02:34:09.286||INFO||(179)||infraRsToEncapInstDef and infraAssocEncapInstDef MoCount are both 11, postUpgradeCb executed successfully.
+UTC 2024-08-07T02:34:09.558||INFO||(179)||infraRsConnectivityProfile and infraRsConnectivityProfileOpt MoCount are both 19, postUpgradeCb executed successfully.
+UTC 2024-08-07T02:34:09.829||INFO||(179)||fvIPSLAMonitoringPol and fvSlaDef MoCount are both 1, postUpgradeCb executed successfully.
+UTC 2024-08-07T02:34:09.964||INFO||(179)||infraImplicitSetPol and infraImplicitSetPol MoCount are both 1, postUpgradeCb executed successfully.
+UTC 2024-08-07T02:34:10.234||INFO||(179)||infraImplicitSetPol and infraRsToImplicitSetPol MoCount are both 1, postUpgradeCb executed successfully.
 
 //infraRsConnectivityProfile is existing class, each Mo's postUpgradeCb function creates its respective infraRsConnectivityProfileOpt instance.
 
