@@ -1,5 +1,5 @@
 '''
-This script is designed to validate the postUpgradeCb for those concerned classes are invoked properly. 
+This script is designed to validate the postUpgradeCb for those concerned classes are invoked properly.
 Credit goes to Giovanni for gudiance and review, and Lovkesh for test.
 Author Welkin, feedback is welcomed via E-mail to tianhe@cisco.com.
 '''
@@ -20,6 +20,13 @@ new_mo_dict = {
         "SinceVersion": "6.0(2h)", #suppBit attribute is available from 6.0(2h)
         "Impact": "64/32 bit image can unexpectedly pushed to switches",
     },
+    "infraRsToInterfacePolProfileOpt":
+    {
+        "CreatedBy": "infraRsToInterfacePolProfile",
+        "SinceVersion": ["5.2(8d)","6.0(3d)"],
+        "Impact": "VLAN for missing Mo will not be deployed to leaf",
+    },
+
     "infraAssocEncapInstDef":
     {
         "CreatedBy": "infraRsToEncapInstDef",
@@ -116,7 +123,7 @@ class AciVersion():
         ver = ('{major1}.{major2}({maint}{patch})'
                .format(**v.groupdict()) if v else None)
         return self.version == ver
-    
+
 
 def icurl(apitype, query):
     if apitype not in ['class', 'mo']:
@@ -145,24 +152,30 @@ def get_current_version():
 
 def postUpgradeCheck():
     cversion = get_current_version().__str__()
+    filtered_mo_dict={}
     for new_mo in new_mo_dict:
-        SinceVersion = AciVersion(new_mo_dict[new_mo]['SinceVersion'])
-        created_by_mo = new_mo_dict[new_mo]['CreatedBy']
-        if not SinceVersion.newer_than(str(cversion)):
-            temp_new_mo_count = icurl("class", new_mo+".json?rsp-subtree-include=count")
-            new_mo_count = int(temp_new_mo_count[0]['moCount']['attributes']['count'])
-            if created_by_mo == "":
-                if new_mo_count==0:
-                    logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
-            else:
-                temp_createdby_mo_count = icurl('class', created_by_mo+".json?rsp-subtree-include=count")
-                created_by_mo_count = int(temp_createdby_mo_count[0]['moCount']['attributes']['count'])
-                if created_by_mo_count != new_mo_count:
-                    logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
-                    continue
-            if created_by_mo=="":
-                created_by_mo=new_mo
-            logger.info("%s has %s Mo, postUpgradeCb successfully created %s %s"%(created_by_mo,created_by_mo_count,new_mo_count,new_mo))
+        if isinstance(new_mo_dict[new_mo]['SinceVersion'],list):
+            for version in new_mo_dict[new_mo]['SinceVersion']:
+                SinceVersion=AciVersion(version)
+                if not SinceVersion.newer_than(str(cversion)):
+                    filtered_mo_dict[new_mo]=new_mo_dict[new_mo]["CreatedBy"]
+
+    for new_mo in filtered_mo_dict:
+        created_by_mo = filtered_mo_dict[new_mo]
+        temp_new_mo_count = icurl("class", new_mo+".json?rsp-subtree-include=count")
+        new_mo_count = int(temp_new_mo_count[0]['moCount']['attributes']['count'])
+        if created_by_mo == "":
+            if new_mo_count==0:
+                logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
+        else:
+            temp_createdby_mo_count = icurl('class', created_by_mo+".json?rsp-subtree-include=count")
+            created_by_mo_count = int(temp_createdby_mo_count[0]['moCount']['attributes']['count'])
+            if created_by_mo_count != new_mo_count:
+                logger.warning([new_mo, new_mo_dict[new_mo]["Impact"]])
+                continue
+        if created_by_mo=="":
+            created_by_mo=new_mo
+        logger.info("%s and %s MoCount are both %s, postUpgradeCb executed successfully.  "%(created_by_mo,new_mo,new_mo_count))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -171,4 +184,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     setup_logger(logger,args.debug,'/data/techsupport/checkPostUpgrade.log')
     postUpgradeCheck()
-
