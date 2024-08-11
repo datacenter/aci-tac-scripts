@@ -152,19 +152,15 @@ def get_current_version():
 
 def postUpgradeCheck():
     cversion = get_current_version().__str__()
-    filtered_mo_list_by_version=[]
     for new_mo in new_mo_dict:
         if isinstance(new_mo_dict[new_mo]['SinceVersion'],list):
             for version in new_mo_dict[new_mo]['SinceVersion']:
-                SinceVersion=AciVersion(version)
-                if not SinceVersion.newer_than(str(cversion)):
-                    if new_mo not in filtered_mo_list_by_version:
-                        filtered_mo_list_by_version.append(new_mo)
+                if AciVersion(version).newer_than(str(cversion)):
+                    continue
         else:
             SinceVersion=AciVersion(new_mo_dict[new_mo]['SinceVersion'])
-            if not SinceVersion.newer_than(str(cversion)):
-                filtered_mo_list_by_version.append(new_mo)
-    for new_mo in filtered_mo_list_by_version:
+            if SinceVersion.newer_than(str(cversion)):
+                continue
         created_by_mo = new_mo_dict[new_mo]['CreatedBy']
         temp_new_mo_count = icurl("class", new_mo+".json?rsp-subtree-include=count")
         new_mo_count = int(temp_new_mo_count[0]['moCount']['attributes']['count'])
