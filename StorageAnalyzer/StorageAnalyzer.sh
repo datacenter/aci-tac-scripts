@@ -1199,6 +1199,75 @@ parse_args() {
 # FUNCTIONS - MAIN PROGRAM - TREAT DEFECT(S) #
 ##############################################
 
+
+# Defect(s) : CSCwj42027
+# ---------------------- 
+# Truncates specific large log files under /data/log.
+# Reference(s): [Insert Reference Link if available]
+STORE_DEFECT_CSCwj42027_CPT=0
+STORE_DEFECT_CSCwj42027=()
+
+CSCWJ42027() {
+
+  # Local variable for the path to check log files
+  local TARGET_DIR="/data/log"
+
+  # Log the initiation of the process
+  trace "Starting the process for truncating large log files in ${TARGET_DIR}."
+
+  # Ensure the function is executed by a TAC user on a controller with an appropriate software version
+  if [ "${TAC_USER}" == "true" ] && [ "${REMOTE_NODE_TYPE}" == "controller" ] ; then
+
+    # Display the defect being handled
+    subtitle "Checking the defect: CSCwj42027"
+    trace "CSCWJ42027: Checking the defect: CSCwj42027"
+
+    # Check the software version to ensure it is less than 6.1(1)
+    compare_software_versions "${REMOTE_SOFTWARE_RELEASE}" "6.1(1)"
+    if [ "${READ_VALUE}" -lt 0 ] ; then
+
+      # Identify large log files to be truncated
+      send_remote_command "find ${TARGET_DIR} -size +21M | grep '.log$' | grep -v 'svc_ifc'"
+      local FILES_TO_TRUNCATE=${READ_VALUE}
+
+      # Process and truncate each identified log file
+      if [ -n "${FILES_TO_TRUNCATE}" ] ; then
+        trace "CSCWJ42027: Truncating log files: ${FILES_TO_TRUNCATE}"
+
+        # Truncate each log file to 0 bytes
+        for FILE in ${FILES_TO_TRUNCATE}; do
+          send_remote_command "truncate -s 0 ${FILE}"
+          trace "CSCWJ42027: Truncated file: ${FILE}"
+          info "CSCWJ42027: Truncated file: ${FILE}"
+        done
+
+        alert "CSCWJ42027 Hits and fixed"
+
+        # Record the defect hit
+        STORE_DEFECT_CSCwj42027[${STORE_DEFECT_CSCwj42027_CPT}]="${REMOTE_NODE_ID}:CSCWJ42027:hit"
+        STORE_DEFECT_CSCwj42027_CPT=$((STORE_DEFECT_CSCwj42027_CPT+1))
+
+      else
+        trace "CSCWJ42027: No files to truncate."
+        success "CSCWJ42027 No Hits"
+        STORE_DEFECT_CSCwj42027[${STORE_DEFECT_CSCwj42027_CPT}]="${REMOTE_NODE_ID}:CSCWJ42027:no hit"
+        STORE_DEFECT_CSCwj42027_CPT=$((STORE_DEFECT_CSCwj42027_CPT+1))
+      fi
+
+    else
+      trace "CSCWJ42027: Software version ${REMOTE_SOFTWARE_RELEASE} not affected by defect."
+      success "CSCWJ42027 software release already patched \"${REMOTE_SOFTWARE_RELEASE}\""
+    fi
+
+  else
+    trace "CSCWJ42027: Not processing - either not a TAC user or not a controller."
+  fi
+
+  # Clean up local variables
+  unset TARGET_DIR FILES_TO_TRUNCATE FILE
+}
+
+
 # Defect(s) : CSCwe09535
 # ---------------------- 
 # Directory(ies): /var/tmp/oci*
@@ -1991,6 +2060,7 @@ treat_fault() {
 
       if [ "${PATH_MOUNT}" == "/data/log" ] ; then
         CSCvt98738
+        CSCWJ42027
       fi
 
       if [ "${PATH_MOUNT}" == "/" ] ; then
