@@ -1203,7 +1203,7 @@ parse_args() {
 # Defect(s) : CSCwj42027
 # ---------------------- 
 # Truncates specific large log files under /data/log.
-# Reference(s): [Insert Reference Link if available]
+# Reference(s): https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj42027
 STORE_DEFECT_CSCwj42027_CPT=0
 STORE_DEFECT_CSCwj42027=()
 
@@ -1240,6 +1240,13 @@ CSCWJ42027() {
           trace "CSCWJ42027: Truncated file: ${FILE}"
           info "CSCWJ42027: Truncated file: ${FILE}"
         done
+        
+        # Applies non-persistent workaround removing conflicting logrotate conf file
+        trace "CSCWJ42027: Removing datalog file and restarting logrotate"
+        info "CSCWJ42027: Removing datalog file and restarting logrotate"
+        send_remote_command "rm /etc/logrotate.d/datalog"
+        send_remote_command "systemctl reset-failed logrotate"
+        send_remote_command "systemctl restart logrotate"
 
         alert "CSCWJ42027 Hits and fixed"
 
