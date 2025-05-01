@@ -37,3 +37,7 @@ Official Fork of https://github.com/agccie/aci-ftag-viewer. This script builds a
 ## [APIC PostUpgradeCb Checker](https://github.com/datacenter/aci-tac-scripts/tree/main/Post-Upgrade-CB-Checker)
 
 This script query the new managed object (mo) created by postUpgradeCb function of existing class, then compare the Mo count and warning customer contact TAC for investigation if mismatch found. 
+
+## [SMU Pre-upgrade Validation](https://github.com/datacenter/aci-tac-scripts/tree/main/SMU%20Pre-upgrade%20Validation)
+
+A validation script to be run on APIC before SMU upgrades to check for known issues that could hinder the success of the SMU upgrade.
