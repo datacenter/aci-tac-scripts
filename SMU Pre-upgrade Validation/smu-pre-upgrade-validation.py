@@ -8,7 +8,7 @@ Check 1: Ensure correct image type (32-bit or 64-bit) based on switch memory cap
 Check 2: Ensure .repodata file does not exist
 
 @ Author: joelebla@cisco.com
-@ Version: 1.1 
+@ Version: 1.0.1
 @ Date: 05/05/2025
 """
 
@@ -1791,7 +1791,16 @@ class ResultLogger:
         all_diagnostics = switch_data.get("diagnostics", {})
         
         with self.lock:
+            # Initialize the first_switch flag if it doesn't exist
+            if not hasattr(self, 'first_switch_logged'):
+                self.first_switch_logged = False
+            
             with open(self.filename, 'a') as f:
+                # Add separator line ONLY before the first switch
+                if not self.first_switch_logged:
+                    f.write("----------------------------------------\n")
+                    self.first_switch_logged = True
+                
                 # Basic switch information
                 f.write(f"\nSwitch: {sw_name} ({sw_ip})\n")
                 f.write(f"Memory: {memory} KB\n")
@@ -1883,6 +1892,7 @@ class ResultLogger:
                     elif cmd_output:
                         f.write(f"{cmd_output.strip()}\n")
                 
+                # Keep the separator line at the end of each switch entry
                 f.write("----------------------------------------\n")
     
     def generate_summary(self, total_switches):
