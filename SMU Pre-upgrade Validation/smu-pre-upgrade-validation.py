@@ -8,7 +8,8 @@ Check 1: Ensure correct image type (32-bit or 64-bit) based on switch memory cap
 Check 2: Ensure .repodata file does not exist
 
 @ Author: joelebla@cisco.com
-@ Version: 04/27/2025
+@ Version: 1.1 
+@ Date: 05/05/2025
 """
 
 import os
@@ -706,6 +707,7 @@ def handle_connection_error(device_name, device_ip, error, error_type=None, buff
 def get_dynamic_md5_hashes():
     """
     Dynamically retrieve MD5 hashes for the current APIC version's switch images
+    with fallback to direct MD5 calculation when md5sum files aren't found
     
     Returns:
         tuple: (md5_32bit, md5_64bit, version_string, images_missing)
@@ -745,33 +747,11 @@ def get_dynamic_md5_hashes():
         logger.info(f"32-bit image: {image_32bit}")
         logger.info(f"64-bit image: {image_64bit}")
         
-        # Get MD5 hashes from APIC fwrepo
-        md5_cmd_32bit = f"cat /firmware/fwrepos/fwrepo/md5sum/{image_32bit} | awk '{{print $1}}'"
-        md5_cmd_64bit = f"cat /firmware/fwrepos/fwrepo/md5sum/{image_64bit} | awk '{{print $1}}'"
-        
-        # Execute the md5sum commands, but handle the case where files don't exist
-        try:
-            md5_32bit = subprocess.check_output(md5_cmd_32bit, shell=True, text=True).strip()
-            if not md5_32bit:
-                md5_32bit = "Image not found in fwrepo"
-                logger.warning("32-bit image hash empty (likely file not found)")
-            logger.info(f"Retrieved 32-bit MD5: {md5_32bit}")
-        except subprocess.CalledProcessError:
-            md5_32bit = "Image not found in fwrepo"
-            logger.warning("32-bit image file not found in repository")
-            
-        try:
-            md5_64bit = subprocess.check_output(md5_cmd_64bit, shell=True, text=True).strip()
-            if not md5_64bit:
-                md5_64bit = "Image not found in fwrepo"
-                logger.warning("64-bit image hash empty (likely file not found)")
-            logger.info(f"Retrieved 64-bit MD5: {md5_64bit}")
-        except subprocess.CalledProcessError:
-            md5_64bit = "Image not found in fwrepo"
-            logger.warning("64-bit image file not found in repository")
+        # Get MD5 hashes from APIC fwrepo using a different approach that suppresses errors
+        md5_32bit = get_md5_from_file(image_32bit)
+        md5_64bit = get_md5_from_file(image_64bit)
         
         # Check if both images were not found
-        # Also check for empty strings which could happen if md5sum runs but doesn't return a hash
         images_missing = ((md5_32bit == "Image not found in fwrepo" or not md5_32bit) and 
                          (md5_64bit == "Image not found in fwrepo" or not md5_64bit))
         
@@ -789,6 +769,101 @@ def get_dynamic_md5_hashes():
     except Exception as e:
         logger.error(f"Error retrieving MD5 hashes: {str(e)}")
         raise RuntimeError(f"Failed to get MD5 hashes: {str(e)}")
+
+def get_md5_from_file(image_filename):
+    """
+    Get MD5 hash from md5sum file with error suppression
+    
+    Args:
+        image_filename: Name of the image file
+        
+    Returns:
+        str: MD5 hash or error message
+    """
+    md5sum_file = f"/firmware/fwrepos/fwrepo/md5sum/{image_filename}"
+    
+    # First check if the file exists without printing errors
+    try:
+        # Use Python's os.path.exists which doesn't print error messages
+        if not os.path.exists(md5sum_file):
+            logger.warning(f"MD5 file not found: {md5sum_file}")
+            return get_direct_md5sum(image_filename)
+        
+        # If file exists, read it silently
+        with open(md5sum_file, 'r') as f:
+            content = f.read().strip()
+            
+        # Extract MD5 hash (first field)
+        if content:
+            md5_hash = content.split()[0]
+            if re.match(r'^[0-9a-f]{32}$', md5_hash):
+                logger.info(f"Found MD5 hash in file: {md5_hash}")
+                return md5_hash
+            
+        # If we couldn't get a valid hash, fall back to direct calculation
+        logger.warning(f"Invalid content in MD5 file: {md5sum_file}")
+        return get_direct_md5sum(image_filename)
+        
+    except Exception as e:
+        # Any error, fall back to direct calculation
+        logger.warning(f"Error reading MD5 file {md5sum_file}: {str(e)}")
+        return get_direct_md5sum(image_filename)
+
+def get_direct_md5sum(image_filename):
+    """
+    Calculate MD5 hash directly from the image file
+    
+    Args:
+        image_filename: Name of the image file
+        
+    Returns:
+        str: MD5 hash or error message
+    """
+    logger.info(f"Calculating MD5 hash directly for {image_filename}")
+    
+    image_path = f"/firmware/fwrepos/fwrepo/{image_filename}"
+    
+    # First check if the image file exists without printing errors
+    if not os.path.exists(image_path):
+        logger.warning(f"Image file not found: {image_path}")
+        return "Image not found in fwrepo"
+    
+    try:
+        # Use Python's hashlib to calculate MD5 directly instead of using shell command
+        # This completely avoids any shell error messages
+        md5_hash = calculate_file_md5(image_path)
+        if md5_hash:
+            logger.info(f"Direct MD5 calculation successful: {md5_hash}")
+            return md5_hash
+        else:
+            logger.warning("Failed to calculate MD5 directly")
+            return "Image not found in fwrepo"
+            
+    except Exception as e:
+        logger.error(f"Error during direct MD5 calculation: {str(e)}")
+        return "Image not found in fwrepo"
+
+def calculate_file_md5(filepath):
+    """
+    Calculate MD5 of a file using Python's hashlib
+    
+    Args:
+        filepath: Path to the file
+        
+    Returns:
+        str: MD5 hash as hex string or None on error
+    """
+    try:
+        import hashlib
+        md5 = hashlib.md5()
+        with open(filepath, 'rb') as f:
+            # Read in chunks to handle large files
+            for chunk in iter(lambda: f.read(4096), b''):
+                md5.update(chunk)
+        return md5.hexdigest()
+    except Exception as e:
+        logger.error(f"Error in MD5 calculation: {str(e)}")
+        return None
 
 class SwitchInfo:
     """Handles discovery and data collection from ACI switches"""
