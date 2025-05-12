@@ -8,8 +8,8 @@ Check 1: Ensure correct image type (32-bit or 64-bit) based on switch memory cap
 Check 2: Ensure .repodata file does not exist
 
 @ Author: joelebla@cisco.com
-@ Version: 1.1.0
-@ Date: 05/11/2025
+@ Version: 1.1.1
+@ Date: 05/12/2025
 """
 
 import os
@@ -1778,12 +1778,18 @@ def check_repodata(conn):
         result_type = conn.execute_command(f"ls -lh {repodata_path}")
         output = conn.output
         
-        # If the command was successful and doesn't contain "cannot access" or similar error
-        # then the directory exists which is a FAIL condition
-        if result_type == "prompt" and "cannot access" not in output and "No such file or directory" not in output:
-            return "FAIL", output
-        else:
+        # If the output contains "cannot access" or similar error, the file doesn't exist (PASS)
+        if "cannot access" in output or "No such file or directory" in output:
             return "PASS", output
+        
+        # If the output contains file information (not empty), the file exists (FAIL)
+        elif output.strip() and not ("cannot access" in output or "No such file" in output):
+            return "FAIL", output
+        
+        # Any other case (maybe empty output or another error)
+        logger.debug(f"Repodata check returned ambiguous result: '{output}'")
+        # Default to PASS for ambiguous results
+        return "PASS", output
     except Exception as e:
         # If there was an error executing the command, consider it inconclusive
         return "ERROR", f"Command execution error: {str(e)}"
@@ -1840,6 +1846,92 @@ class SwitchDataCollector:
         md5_match = re.search(SwitchDataCollector.MD5_PATTERN, md5_output)
         return md5_match.group(1) if md5_match else None
     
+    @staticmethod
+    def extract_file_owner_info(conn, image_path, switch_data, diagnostics):
+        """
+        Extract file owner information for a file with permission issues
+        
+        Args:
+            conn: Connection object
+            image_path: Path to the image file
+            switch_data: Dict to update with file owner info
+            diagnostics: Dict to update with diagnostic info
+        """
+        try:
+            result_type = conn.execute_command(f"ls -lh {image_path}")
+            ls_output = conn.output
+            
+            # Store the raw ls output for later parsing
+            switch_data["raw_ls_output"] = ls_output.strip()
+            diagnostics["raw_ls_output"] = ls_output.strip()
+            
+            # Extract the relevant line containing file information
+            file_info_line = None
+            for line in ls_output.splitlines():
+                # Skip command line or hostname-only lines
+                if line.startswith("ls ") or line.strip() == switch_data.get("switch", ""):
+                    continue
+                    
+                # Look for the image filename in the line
+                if ".bin" in line:
+                    file_info_line = line.strip()
+                    # Store the file line in both places
+                    switch_data["file_line"] = file_info_line
+                    diagnostics["file_line"] = file_info_line
+                    break
+            
+            # If we found a relevant line, parse it
+            if file_info_line:
+                # Look for pattern like "-rw------- 1 admin admin 2.4G"
+                owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+(\S+)', file_info_line)
+                
+                if owner_match:
+                    owner = owner_match.group(1)
+                    group = owner_match.group(2)
+                    
+                    # Extract file permissions if possible
+                    perm_match = re.search(r'(-[rwx-]+)\s+\d+\s+', file_info_line)
+                    permissions = perm_match.group(1) if perm_match else "-unknown-"
+                    
+                    # Store the owner information directly in switch_data
+                    switch_data["file_owner"] = owner
+                    switch_data["file_group"] = group
+                    switch_data["file_permissions"] = permissions
+                    switch_data["file_details"] = f"{permissions} {owner} {group}"
+                    
+                    # Also store in diagnostics
+                    diagnostics["file_owner"] = owner
+                    diagnostics["file_group"] = group
+                    diagnostics["file_permissions"] = permissions
+                    diagnostics["file_details"] = f"{permissions} {owner} {group}"
+                    
+                else:
+                    # If regex pattern failed, try simpler approach - extract by position
+                    parts = file_info_line.split()
+                    
+                    if len(parts) >= 5:  # Should have at least 5 parts
+                        try:
+                            # Typical structure: permissions links owner group size date time filename
+                            permissions = parts[0] if parts[0].startswith('-') else "-unknown-"
+                            owner = parts[2] 
+                            group = parts[3]
+                            
+                            # Store directly in switch_data
+                            switch_data["file_owner"] = owner
+                            switch_data["file_group"] = group
+                            switch_data["file_permissions"] = permissions
+                            switch_data["file_details"] = f"{permissions} {owner} {group}"
+                            
+                            # Also store in diagnostics
+                            diagnostics["file_owner"] = owner
+                            diagnostics["file_group"] = group
+                            diagnostics["file_permissions"] = permissions
+                            diagnostics["file_details"] = f"{permissions} {owner} {group}"
+                        except IndexError:
+                            pass
+        except Exception as e:
+            diagnostics["file_info_error"] = str(e)
+
     @staticmethod
     def collect_data(sw_name, sw_ip, conn, switch_info=None, kickstart_image=None, memory_kb=None, memory_gb=None):
         """
@@ -2264,6 +2356,9 @@ def perform_modular_spine_checks(conn, sw_name, sw_ip, progress_bar, md5_64bit, 
     Returns:
         dict: Switch data with validation results
     """
+    # Initialize diagnostics dict
+    diagnostics = {"error_type": None}
+    
     # Create data structure for modular spines
     switch_data = {
         "switch": sw_name,
@@ -2332,6 +2427,15 @@ def perform_modular_spine_checks(conn, sw_name, sw_ip, progress_bar, md5_64bit, 
         
         switch_data["md5sum"] = md5_hash
         
+        # Check for permission denied in md5 output and get file owner info
+        if "md5_command_output" in switch_data and "permission denied" in switch_data["md5_command_output"].lower():
+            progress_bar.update(f"{sw_name}: Getting file permissions", 0)
+            image_path = switch_data.get('image_path', '')
+            
+            if image_path:
+                # Use our helper function to extract file owner information
+                SwitchDataCollector.extract_file_owner_info(conn, image_path, switch_data, diagnostics)
+        
         # IMPORTANT: Modular spines MUST use 64-bit image regardless of memory
         if md5_hash:
             if md5_hash == md5_64bit:
@@ -2362,6 +2466,9 @@ def perform_modular_spine_checks(conn, sw_name, sw_ip, progress_bar, md5_64bit, 
         switch_data["message"] = f"{md5_message} | Repodata Check: PASS"
     else:
         switch_data["message"] = f"{md5_message} | Repodata Check: ERROR"
+    
+    # Add diagnostics to the result
+    switch_data["diagnostics"] = diagnostics
     
     return switch_data
 
@@ -2403,69 +2510,12 @@ def perform_regular_switch_checks(conn, sw_name, sw_ip, progress_bar, switch_inf
     
     # Check for permission denied in md5 output and get file owner info
     if "md5_command_output" in switch_data and "permission denied" in switch_data["md5_command_output"].lower():
-        try:
-            progress_bar.update(f"{sw_name}: Getting file permissions", 0)
-            image_path = switch_data.get('image_path', '')
-            logger.debug(f"Getting file permissions with: ls -lh {image_path}")
-            
-            result_type = conn.execute_command(f"ls -lh {image_path}")
-            if result_type == "prompt":
-                ls_output = conn.output
-                logger.debug(f"Raw ls output: '{ls_output}'")
-                
-                # Store the raw ls output for diagnostics
-                diagnostics["raw_ls_output"] = ls_output.strip()
-                
-                # Add some debugging to print raw output for each line 
-                logger.debug(f"LS output has {len(ls_output.splitlines())} lines")
-                for i, line in enumerate(ls_output.splitlines()):
-                    logger.debug(f"LS Line {i}: '{line}'")
-                
-                # Extract the relevant line containing file information 
-                file_info_line = None
-                for line in ls_output.splitlines():
-                    if ".bin" in line and not line.startswith(sw_name) and not "ls -lh" in line:
-                        file_info_line = line.strip()
-                        diagnostics["file_line"] = file_info_line
-                        break
-                
-                # If we found a relevant line, try to parse it 
-                if file_info_line:
-                    # Look for pattern like: "-rw------- 1 admin admin 2.4G Mar 12 14:17 /bootflash/..."
-                    # The dashes at the beginning might be mangled sometimes, so make that part optional
-                    owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+(\S+)\s+[\d.]+[KMG]', file_info_line)
-                    if owner_match:
-                        owner = owner_match.group(1)
-                        group = owner_match.group(2)
-                        diagnostics["file_owner"] = owner
-                        diagnostics["file_group"] = group
-                        
-                        # Extract file permissions if possible
-                        perm_match = re.search(r'(-[rwx-]+)\s+\d+\s+', file_info_line)
-                        permissions = perm_match.group(1) if perm_match else "-unknown-"
-                        
-                        # Store the parsed file details
-                        diagnostics["file_permissions"] = permissions
-                        diagnostics["file_details"] = f"{permissions} {owner} {group}"
-                    else:
-                        # If regex pattern failed, try simpler approach - extract by position
-                        parts = file_info_line.split()
-                        if len(parts) >= 5:  # Should have at least 5 parts
-                            try:
-                                owner = parts[2]
-                                group = parts[3]
-                                diagnostics["file_owner"] = owner
-                                diagnostics["file_group"] = group
-                                diagnostics["file_details"] = f"{owner} {group}"
-                            except IndexError:
-                                # If that fails, just store the raw line
-                                diagnostics["raw_line"] = file_info_line
-                        else:
-                            # Not enough parts, store raw line
-                            diagnostics["raw_line"] = file_info_line
-                    
-        except Exception as e:
-            diagnostics["file_info_error"] = str(e)
+        progress_bar.update(f"{sw_name}: Getting file permissions", 0)
+        image_path = switch_data.get('image_path', '')
+        
+        if image_path:
+            # Use our helper function to extract file owner information
+            SwitchDataCollector.extract_file_owner_info(conn, image_path, switch_data, diagnostics)
     
     # Categorize any errors that occurred during data collection
     if switch_data["status"] != "success":
@@ -2508,6 +2558,7 @@ def perform_regular_switch_checks(conn, sw_name, sw_ip, progress_bar, switch_inf
     
     # Add diagnostics to the result
     switch_data["diagnostics"] = diagnostics
+    
     return switch_data
 
 def process_switches_in_batches(switch_ips, mod_spine_ips, switch_info, progress_bar, 
@@ -2711,6 +2762,7 @@ class ResultLogger:
         result = switch_data.get("result", "ERROR")
         repodata_result = switch_data.get("repodata_check", "ERROR")
         cmd_output = switch_data.get("md5_command_output", "")
+        diagnostics = switch_data.get("diagnostics", {})
         
         # Check for permission denied
         permission_denied = cmd_output and "permission denied" in cmd_output.lower()
@@ -2727,23 +2779,76 @@ class ResultLogger:
         
         # Different recommendations based on conditions
         if permission_denied:
-            file.write("Re-run the script from the admin account to rectify the permissions issue.\n\n")
-            file.write("Note: Rectification of permissions will only work from the admin account.\nIt will not work even if a non-admin user belongs to the admin group.\n")
-        
-        if result == "FAIL" and repodata_result == "FAIL":
-            # Both checks failed
-            if not permission_denied:  # Only add if not already shown for permission denied
-                file.write("1. Contact Cisco TAC for assitance in setting boot variable to use correct switch image.\n")
-                file.write("2. Contact Cisco TAC to remove .repodata file via root user.\n\n")
-                file.write("Defect Reference:\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj44966\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwo34637\n")
-        elif result == "FAIL" and not permission_denied:
-            # Only MD5 check failed and not due to permissions
-            file.write("Contact Cisco TAC for assitance in setting boot variable to use correct switch image.\n\n")
+            file.write("Re-run the script from the owner account or root to rectify the permissions issue.\n")
+            
+            # Look for owner information using multiple methods
+            owner = None
+            
+            # Check various places for file owner info
+            if "file_owner" in switch_data:
+                owner = switch_data["file_owner"]
+            elif diagnostics and "file_owner" in diagnostics:
+                owner = diagnostics["file_owner"]
+            elif "raw_ls_output" in switch_data:
+                raw_ls = switch_data["raw_ls_output"]
+                for line in raw_ls.splitlines():
+                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
+                        continue
+                    
+                    if ".bin" in line:
+                        # Try regex first
+                        owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+\S+', line)
+                        if owner_match:
+                            owner = owner_match.group(1)
+                            break
+                        
+                        # Fallback: simple split by whitespace
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            try:
+                                owner = parts[2]
+                                break
+                            except IndexError:
+                                pass
+            elif diagnostics and "raw_ls_output" in diagnostics:
+                raw_ls = diagnostics["raw_ls_output"]
+                for line in raw_ls.splitlines():
+                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
+                        continue
+                    
+                    if ".bin" in line:
+                        # Clean up the line if there's a hostname at the end
+                        switch_name = switch_data.get("switch", "")
+                        if switch_name in line:
+                            line = line[:line.find(switch_name)].strip()
+                        
+                        # Try regex
+                        owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+\S+', line)
+                        if owner_match:
+                            owner = owner_match.group(1)
+                            break
+                        
+                        # Fallback to simple split
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            try:
+                                owner = parts[2]
+                                break
+                            except IndexError:
+                                pass
+            
+            # If we found the owner, display it
+            if owner:
+                file.write(f"The owner of the file is: {owner}\n")
+                
+        # Add recommendations for other failure types
+        if result == "FAIL" and not permission_denied:
+            file.write("Contact Cisco TAC for assistance in setting boot variable to use correct switch image.\n\n")
             file.write("Defect Reference:\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj44966\n")
-        elif repodata_result == "FAIL":
-            # Only Repodata check failed
-            if permission_denied:  # Add a separator if we already showed permission message
-                file.write("\n")
+            
+        if repodata_result == "FAIL":
+            if permission_denied or result == "FAIL":
+                file.write("\n")  # Add separator line
             file.write("Contact Cisco TAC to remove .repodata file via root user.\n\n")
             file.write("Defect Reference:\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwo34637\n")
 
@@ -2762,36 +2867,120 @@ class ResultLogger:
         
         # Check for permission denied in the output
         if cmd_output and "permission denied" in cmd_output.lower():
-            # First extract just the permission denied line
+            # Extract the permission denied line
+            permission_line = None
             for line in cmd_output.splitlines():
+                if not line:
+                    continue
+                    
                 if "permission denied" in line.lower():
-                    file.write(f"{line.strip()}\n")
+                    # Remove hostname if it appears at the end
+                    switch_name = switch_data.get("switch", "")
+                    if switch_name and switch_name in line:
+                        permission_line = line[:line.find(switch_name)].strip()
+                    else:
+                        permission_line = line
                     break
+                    
+            if permission_line:
+                file.write(f"{permission_line}\n")
             
-            # Use any available method to find the file permissions line
-            if "raw_ls_output" in diagnostics:
-                ls_output = diagnostics["raw_ls_output"]
-                for line in ls_output.splitlines():
-                    if line.strip() and ".bin" in line and not line.startswith("ls "):
-                        file.write(f"{line.strip()}\n")
+            # Now find and display the file info line
+            file_info_displayed = False
+            
+            # Try getting file info from various locations
+            if not file_info_displayed and "raw_ls_output" in switch_data:
+                raw_ls = switch_data["raw_ls_output"]
+                for line in raw_ls.splitlines():
+                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
+                        continue
+                    
+                    if ".bin" in line:
+                        # Remove hostname if it appears at the end
+                        switch_name = switch_data.get("switch", "")
+                        if switch_name and switch_name in line:
+                            line = line[:line.find(switch_name)].strip()
+                        
+                        file.write(f"{line}\n")
+                        file_info_displayed = True
                         break
-            elif "file_line" in diagnostics:
-                file.write(f"{diagnostics['file_line']}\n")
-            elif "file_permissions" in diagnostics and "file_owner" in diagnostics:
+            
+            # Try diagnostics raw_ls_output if needed
+            if not file_info_displayed and diagnostics and "raw_ls_output" in diagnostics:
+                raw_ls = diagnostics["raw_ls_output"]
+                for line in raw_ls.splitlines():
+                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
+                        continue
+                    
+                    if ".bin" in line:
+                        # Remove hostname if it appears at the end
+                        switch_name = switch_data.get("switch", "")
+                        if switch_name and switch_name in line:
+                            line = line[:line.find(switch_name)].strip()
+                            
+                        file.write(f"{line}\n")
+                        file_info_displayed = True
+                        break
+            
+            # Try file_line if needed
+            if not file_info_displayed and "file_line" in switch_data:
+                line = switch_data["file_line"]
+                # Skip command lines
+                if not line.startswith("ls "):
+                    # Clean the line
+                    switch_name = switch_data.get("switch", "")
+                    if switch_name and switch_name in line:
+                        line = line[:line.find(switch_name)].strip()
+                        
+                    file.write(f"{line}\n")
+                    file_info_displayed = True
+            
+            # Try file_line in diagnostics if needed
+            elif not file_info_displayed and diagnostics and "file_line" in diagnostics:
+                line = diagnostics["file_line"]
+                # Skip command lines
+                if not line.startswith("ls "):
+                    # Clean the line
+                    switch_name = switch_data.get("switch", "")
+                    if switch_name and switch_name in line:
+                        line = line[:line.find(switch_name)].strip()
+                        
+                    file.write(f"{line}\n")
+                    file_info_displayed = True
+            
+            # Try component parts if needed
+            if not file_info_displayed and "file_permissions" in switch_data and "file_owner" in switch_data:
+                file.write(f"{switch_data['file_permissions']} {switch_data['file_owner']} {switch_data['file_group']}\n")
+                file_info_displayed = True
+            
+            # Try component parts in diagnostics if needed
+            elif not file_info_displayed and diagnostics and "file_permissions" in diagnostics:
                 file.write(f"{diagnostics['file_permissions']} {diagnostics['file_owner']} {diagnostics['file_group']}\n")
-            elif "file_details" in diagnostics:
+                file_info_displayed = True
+            
+            # Try pre-formatted file_details if needed
+            if not file_info_displayed and "file_details" in switch_data:
+                file.write(f"{switch_data['file_details']}\n")
+            elif not file_info_displayed and diagnostics and "file_details" in diagnostics:
                 file.write(f"{diagnostics['file_details']}\n")
-            # Check if raw_ls_output exists directly in switch_data
-            elif "raw_ls_output" in switch_data:
-                ls_output = switch_data["raw_ls_output"]
-                for line in ls_output.splitlines():
-                    if line.strip() and ".bin" in line and not line.startswith("ls "):
-                        file.write(f"{line.strip()}\n")
-                        break
         
         # If no permission denied or no file info found, show the command output directly
         elif cmd_output:
-            file.write(f"{cmd_output.strip()}\n")
+            # Clean up the command output
+            lines = []
+            for line in cmd_output.splitlines():
+                if not line or line == switch_data.get("switch", ""):
+                    continue
+                    
+                # Remove hostname if it appears at the end of the line
+                switch_name = switch_data.get("switch", "")
+                if switch_name and switch_name in line:
+                    line = line[:line.find(switch_name)].strip()
+                    
+                lines.append(line)
+            
+            if lines:
+                file.write(f"{lines[0]}\n")
 
     def log_switch_result(self, switch_data):
         """Log data for a single switch with specific error details, relevant diagnostics, and recommendations"""
@@ -2902,6 +3091,8 @@ class ResultLogger:
                         # Check various places where owner information might be stored
                         if all_diagnostics and "file_owner" in all_diagnostics:
                             owner = all_diagnostics["file_owner"]
+                        elif "file_owner" in switch_data:
+                            owner = switch_data["file_owner"]
                         elif "raw_ls_output" in switch_data:
                             # Try to extract owner from the raw_ls_output
                             ls_output = switch_data["raw_ls_output"]
@@ -2937,48 +3128,44 @@ class ResultLogger:
                 if result == "ERROR" or md5sum is None:
                     f.write("\nDiagnostics:\n")
                     
-                    # Check for permission denied in the output to format as requested
+                    # Check for permission denied in the output
                     if cmd_output and "permission denied" in cmd_output.lower():
-                        # Extract just the permission denied message
-                        permission_line = None
+                        # First extract just the permission denied line
                         for line in cmd_output.splitlines():
                             if "permission denied" in line.lower():
-                                permission_line = line.strip()
-                                f.write(f"{permission_line}\n")
+                                f.write(f"{line.strip()}\n")
                                 break
                         
                         # Check for file permissions information in multiple locations
                         if "raw_ls_output" in switch_data:
-                            # Direct access from switch_data
                             ls_output = switch_data["raw_ls_output"]
                             for line in ls_output.splitlines():
                                 if line.strip() and ".bin" in line and not line.startswith("ls "):
                                     f.write(f"{line.strip()}\n")
                                     break
                         elif all_diagnostics and "raw_ls_output" in all_diagnostics:
-                            # From diagnostics
                             ls_output = all_diagnostics["raw_ls_output"]
                             for line in ls_output.splitlines():
                                 if line.strip() and ".bin" in line and not line.startswith("ls "):
                                     f.write(f"{line.strip()}\n")
                                     break
-                        elif all_diagnostics:
-                            # Check for other file information in diagnostics
-                            if "file_line" in all_diagnostics:
-                                f.write(f"{all_diagnostics['file_line']}\n")
-                            elif "file_details" in all_diagnostics:
-                                f.write(f"{all_diagnostics['file_details']}\n")
-                            elif "file_owner" in all_diagnostics and "file_group" in all_diagnostics:
-                                permissions = all_diagnostics.get("file_permissions", "")
-                                if permissions:
-                                    f.write(f"{permissions} {all_diagnostics['file_owner']} {all_diagnostics['file_group']}\n")
-                                else:
-                                    f.write(f"File is owned by: {all_diagnostics['file_owner']} (group: {all_diagnostics['file_group']})\n")
+                        elif "file_line" in switch_data:
+                            f.write(f"{switch_data['file_line']}\n")
+                        elif all_diagnostics and "file_line" in all_diagnostics:
+                            f.write(f"{all_diagnostics['file_line']}\n")
+                        elif "file_details" in switch_data:
+                            f.write(f"{switch_data['file_details']}\n")
+                        elif all_diagnostics and "file_details" in all_diagnostics:
+                            f.write(f"{all_diagnostics['file_details']}\n")
+                        elif "file_permissions" in switch_data and "file_owner" in switch_data:
+                            f.write(f"{switch_data['file_permissions']} {switch_data['file_owner']} {switch_data['file_group']}\n")
+                        elif all_diagnostics and "file_permissions" in all_diagnostics and "file_owner" in all_diagnostics:
+                            f.write(f"{all_diagnostics['file_permissions']} {all_diagnostics['file_owner']} {all_diagnostics['file_group']}\n")
                     
-                    # If no permission denied message found, show the command output directly
+                    # If no permission denied or no file info found, show the command output directly
                     elif cmd_output:
                         f.write(f"{cmd_output.strip()}\n")
-                
+
                 # Keep the separator line at the end of each switch entry
                 f.write("----------------------------------------\n")
     
