@@ -8,8 +8,8 @@ Check 1: Ensure correct image type (32-bit or 64-bit) based on switch memory cap
 Check 2: Ensure .repodata file does not exist
 
 @ Author: joelebla@cisco.com
-@ Version: 1.1.1
-@ Date: 05/12/2025
+@ Version: 1.1.3
+@ Date: 05/27/2025
 """
 
 import os
@@ -34,204 +34,394 @@ from typing import Dict, List, Tuple, Any
 from logging.handlers import RotatingFileHandler
 
 ###########################################
-# Logging Configuration
+# Constants
 ###########################################
 
-# Create logs directory if it doesn't exist
-log_dir = 'logs'
-os.makedirs(log_dir, exist_ok=True)
+# Regular expression patterns
+MEMORY_PATTERN = r'with\s+(\d{7,8})\s+kB\s+of\s+memory'
+IMAGE_PATH_PATTERNS = [
+    r'kickstart\s+image\s+file\s+is\s+:\s+(\S+)',
+    r'kickstart image file is:\s+(\S+)',
+    r'kickstart\s+image\s+file\s+is\s+(\S+)'
+]
+MD5_PATTERN = r'([0-9a-f]{32})'
 
-# Configure logging
-log_file = os.path.join(log_dir, 'smu-check-debug.log')
-log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-log_level = logging.DEBUG  # Change to INFO for production
+# Thresholds and limits
+MEMORY_THRESHOLD = 32000000  # 32GB in KB
 
-# Configure the root logger with NO console output
-logging.basicConfig(level=log_level, format=log_format, handlers=[])
+# Standard memory sizes in GB with KB ranges
+MEMORY_SIZES = {
+    16: (0, 20000),        # Less than 20000KB = 16GB
+    24: (20000, 30000),    # 20000KB to 30000KB = 24GB
+    32: (30000, 40000),    # 30000KB to 40000KB = 32GB
+    64: (60000, 70000)     # 60000KB to 70000KB = 64GB
+}
 
-# Create file handler with rotation (10 MB per file, keep 5 backup files)
-file_handler = RotatingFileHandler(
-    filename=log_file, 
-    maxBytes=10*1024*1024,  # 10 MB
-    backupCount=5
-)
-file_handler.setFormatter(logging.Formatter(log_format))
-file_handler.setLevel(log_level)
-
-# Create console handler with CRITICAL level to completely suppress normal logs
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter(log_format))
-# Set to CRITICAL to ensure only critical errors are shown
-console_handler.setLevel(logging.CRITICAL)  
-
-# Give the file handler a unique ID to prevent duplication
-file_handler.id = "main_file_handler"
-
-# Tracking system for handler attachment
-_handler_attached_loggers = set()
-
-def ensure_file_handler(logger):
-    """Ensure the file handler is attached to a logger without duplication"""
-    global _handler_attached_loggers
-    
-    # Use a combination of logger name and file handler's ID for tracking
-    handler_key = f"{logger.name}:{file_handler.id}"
-    
-    # Check if we've already attached this exact handler to this logger
-    if handler_key in _handler_attached_loggers:
-        return
-    
-    # Check if any existing handler is the same file handler
-    for handler in logger.handlers:
-        if hasattr(handler, 'id') and handler.id == file_handler.id:
-            # Already has this exact handler
-            _handler_attached_loggers.add(handler_key)
-            return
-    
-    # No duplicates - add handler and track
-    logger.addHandler(file_handler)
-    _handler_attached_loggers.add(handler_key)
-
-def get_module_logger(name=None):
-    """
-    Get a properly configured logger that won't duplicate messages
-    
-    Args:
-        name: Logger name (uses __name__ if None)
-        
-    Returns:
-        logging.Logger: Configured logger
-    """
-    log_name = name or __name__
-    
-    # Use existing logger if possible
-    module_logger = logging.getLogger(log_name)
-    
-    # Configure only if not already set up
-    if not getattr(module_logger, '_is_configured', False):
-        module_logger.setLevel(log_level)
-        module_logger.propagate = False  # Prevent propagation to root logger
-        ensure_file_handler(module_logger)
-        module_logger._is_configured = True
-        
-    return module_logger
-
-# Completely reset root logger to avoid any duplicate handlers
-root_logger = logging.getLogger()
-root_logger.handlers = []  # Clear ALL handlers
-root_logger.addHandler(file_handler)
-root_logger.addHandler(console_handler)
-
-# Set a module-level logger and ensure it has proper setup
-logger = logging.getLogger(__name__)
-logger.propagate = False  # Prevent propagation to root logger
-ensure_file_handler(logger)
-
-logger.info("Script started")
+# Result display colors
+RESULT_COLORS = {
+    "PASS": "\033[1;32m",     # Green
+    "FAIL": "\033[1;31m",     # Red
+    "WARNING": "\033[1;33m",  # Yellow
+    "ERROR": "\033[1;31m",    # Red (same as FAIL)
+    "RESET": "\033[0m"        # Reset to default
+}
 
 ###########################################
-# System Resource Management
+# Output Processing and Utilities
 ###########################################
 
-def check_system_resources():
-    """
-    Check system resources using /proc filesystem.
-    Returns a dictionary with resource information.
-    """
-    resources = {}
+class CommandOutputProcessor:
+    """Process command output from switches with standardized cleaning and parsing"""
     
-    # Check for CPU count via /proc/cpuinfo
-    try:
-        cpu_count = 0
-        with open('/proc/cpuinfo', 'r') as f:
-            for line in f:
-                if line.startswith('processor'):
-                    cpu_count += 1
-        resources["cpu_count"] = cpu_count
-        # Logging instead of printing
-        logger.info(f"Detected {cpu_count} CPU cores")
-    except Exception as e:
-        resources["cpu_count"] = 2  # Conservative default
-        logger.info(f"Couldn't read CPU info: {str(e)}. Assuming 2 cores.")
-    
-    # Check memory via /proc/meminfo
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            for line in f:
-                if line.startswith('MemTotal:'):
-                    # Memory is in kB in /proc/meminfo
-                    mem_kb = int(line.split()[1])
-                    mem_gb = round(mem_kb / (1024 * 1024), 2)
-                    resources["memory_gb"] = mem_gb
-                    logger.info(f"Detected {mem_gb} GB memory")
-                    break
-    except Exception as e:
-        resources["memory_gb"] = 4  # Conservative default
-        logger.info(f"Couldn't read memory info: {str(e)}. Assuming 4GB.")
-    
-    # Check load average
-    try:
-        with open('/proc/loadavg', 'r') as f:
-            load = f.read().strip().split()
-            resources["load_1min"] = float(load[0])
-            resources["load_5min"] = float(load[1])
-            resources["load_15min"] = float(load[2])
-            logger.info(f"Current load averages: {load[0]} (1min), {load[1]} (5min), {load[2]} (15min)")
-    except Exception as e:
-        resources["load_1min"] = 1.0  # Default value
-        logger.info(f"Couldn't read load average: {str(e)}")
-    
-    # Check current SSH connections
-    try:
-        conn_count = int(subprocess.check_output(
-            "netstat -ant | grep ESTABLISHED | grep ':22' | wc -l", 
-            shell=True, text=True
-        ).strip())
-        resources["current_connections"] = conn_count
-        logger.info(f"Currently active SSH connections: {conn_count}")
-    except Exception as e:
-        resources["current_connections"] = 5  # Assume moderate usage
-        logger.info(f"Couldn't check SSH connections: {str(e)}")
-    
-    # Calculate recommended thread count based on resources
-    if resources.get("cpu_count", 0) > 0:
-        # Base thread count on CPU cores
-        thread_base = max(2, resources["cpu_count"] - 1)
+    @staticmethod
+    def clean_output(output, switch_name=None):
+        """
+        Clean up command output by removing switch prompts, hostnames, and irrelevant lines
         
-        # Adjust for memory (approximately 150MB per thread)
-        if "memory_gb" in resources:
-            memory_capacity = int(resources["memory_gb"] * 6)  # ~150MB per thread
-            thread_base = min(thread_base, memory_capacity)
+        Args:
+            output (str): Raw command output from switch
+            switch_name (str, optional): Switch hostname to remove from output
             
-        # Adjust for current load
-        if "load_5min" in resources:
-            load_factor = resources["load_5min"] / resources["cpu_count"]
-            if load_factor > 0.7:  # High load
-                thread_base = max(2, thread_base - 2)
-            elif load_factor < 0.3:  # Low load
-                thread_base = min(thread_base + 2, resources["cpu_count"] * 2)
+        Returns:
+            str: Cleaned output without prompts and host information
+        """
+        if not output:
+            return ""
+            
+        # Process each line
+        clean_lines = []
+        for line in output.splitlines():
+            # Skip empty lines
+            if not line.strip():
+                continue
                 
-        # Adjust for existing SSH connections
-        if "current_connections" in resources:
-            conn_adjust = resources["current_connections"] // 5  # Every 5 connections reduces by 1
-            thread_base = max(2, thread_base - conn_adjust)
+            # Skip lines with just the switch name
+            if switch_name and line.strip() == switch_name:
+                continue
+                
+            # Skip common command echo lines
+            if line.strip().startswith(("md5sum ", "ls -", "show ")):
+                continue
             
-        # Cap at reasonable maximum
-        recommended = min(thread_base, 20)
-    else:
-        recommended = 5  # Default fallback
+            # Remove hostname if it appears at the end of a line
+            if switch_name and switch_name in line:
+                line = line[:line.find(switch_name)].strip()
+            
+            # Remove ANSI color codes
+            line = re.sub(r'\033\[[0-9;]*m', '', line)
+            
+            # Add the cleaned line
+            clean_lines.append(line.rstrip())
         
-    resources["recommended_threads"] = recommended
-    logger.info(f"Recommended thread count: {recommended}")
+        return "\n".join(clean_lines)
     
-    return resources
+    @staticmethod
+    def extract_single_line(output, pattern=None, switch_name=None):
+        """
+        Extract a single relevant line from command output
+        
+        Args:
+            output (str): Raw command output
+            pattern (str, optional): Pattern to search for in the line
+            switch_name (str, optional): Switch hostname to remove from output
+            
+        Returns:
+            str: The first relevant line matching the pattern or first non-empty line
+        """
+        # Clean the output first
+        cleaned = CommandOutputProcessor.clean_output(output, switch_name)
+        
+        if not cleaned:
+            return ""
+            
+        lines = cleaned.splitlines()
+        
+        # If pattern specified, look for matching line
+        if pattern:
+            for line in lines:
+                if pattern in line:
+                    return line
+        
+        # Otherwise return first non-empty line
+        for line in lines:
+            if line.strip():
+                return line
+                
+        return ""
+    
+    @staticmethod
+    def extract_file_info(output, switch_name=None):
+        """
+        Extract file information from ls -l command output
+        
+        Args:
+            output (str): Output from ls -l command
+            switch_name (str, optional): Switch hostname to clean from output
+            
+        Returns:
+            dict: Dictionary with file_owner, file_group, file_permissions, file_size
+        """
+        # Clean the output first
+        cleaned = CommandOutputProcessor.clean_output(output, switch_name)
+        
+        # Initialize result dictionary
+        info = {
+            "file_owner": None,
+            "file_group": None,
+            "file_permissions": None,
+            "file_size": None,
+            "file_line": None
+        }
+        
+        if not cleaned:
+            return info
+            
+        # Find the line with the .bin file
+        bin_line = None
+        for line in cleaned.splitlines():
+            if ".bin" in line:
+                bin_line = line
+                info["file_line"] = line
+                break
+        
+        if not bin_line:
+            return info
+            
+        # Parse the line with regex patterns
+        
+        # Permissions pattern: -rw-r--r-- or similar at start of line
+        perm_match = re.search(r'^(-[rwx-]{9})', bin_line)
+        if perm_match:
+            info["file_permissions"] = perm_match.group(1)
+        
+        # Owner and group pattern: typically columns 3 and 4 in ls -l output
+        owner_match = re.search(r'(?:-[rwx-]{9}|\S+)\s+\d+\s+(\S+)\s+(\S+)', bin_line)
+        if owner_match:
+            info["file_owner"] = owner_match.group(1)
+            info["file_group"] = owner_match.group(2)
+        
+        # Size pattern: look for size before date
+        size_match = re.search(r'(\d+(?:\.\d+)?[KMG]?)\s+(?:[A-Z][a-z]{2}\s+\d+|(?:\d{4}-\d{2}-\d{2}|\d{2}:\d{2}))', bin_line)
+        if size_match:
+            info["file_size"] = size_match.group(1)
+        
+        # Create a formatted details string using available info
+        if info["file_permissions"] and info["file_owner"]:
+            info["file_details"] = f"{info['file_permissions']} {info['file_owner']} {info['file_group']}"
+            if info["file_size"]:
+                info["file_details"] += f" {info['file_size']}"
+        
+        return info
+    
+    @staticmethod
+    def parse_md5_output(output, switch_name=None):
+        """
+        Parse MD5 command output to extract hash value
+        
+        Args:
+            output (str): Output from md5sum command
+            switch_name (str, optional): Switch hostname to clean
+            
+        Returns:
+            dict: Dictionary with success status, hash value, and error info if any
+        """
+        # Clean the output first
+        cleaned = CommandOutputProcessor.clean_output(output, switch_name)
+        
+        result = {
+            "success": False,
+            "md5_hash": None,
+            "error_type": None,
+            "error_message": None
+        }
+        
+        if not cleaned:
+            result["error_type"] = "empty_output"
+            result["error_message"] = "No output from md5sum command"
+            return result
+        
+        # Check for permission denied error
+        if "permission denied" in cleaned.lower():
+            result["error_type"] = "permission"
+            result["error_message"] = "Permission denied when accessing image file"
+            return result
+        
+        # Check for file not found error
+        if "no such file" in cleaned.lower():
+            result["error_type"] = "file_not_found"
+            result["error_message"] = "Image file not found"
+            return result
+        
+        # Try to extract the MD5 hash using regex
+        md5_match = re.search(r'([0-9a-f]{32})', cleaned)
+        if md5_match:
+            result["success"] = True
+            result["md5_hash"] = md5_match.group(1)
+        else:
+            result["error_type"] = "extraction_failed"
+            result["error_message"] = "Could not extract MD5 hash from output"
+        
+        return result
+    
+    @staticmethod
+    def format_for_display(output, max_lines=3, max_line_length=80):
+        """
+        Format command output for compact display in reports
+        
+        Args:
+            output (str): Command output to format
+            max_lines (int): Maximum number of lines to include
+            max_line_length (int): Maximum length per line
+            
+        Returns:
+            str: Formatted output suitable for display
+        """
+        if not output:
+            return ""
+            
+        lines = output.splitlines()
+        if not lines:
+            return ""
+            
+        # Limit the number of lines
+        if len(lines) > max_lines:
+            displayed_lines = lines[:max_lines-1]
+            displayed_lines.append(f"... ({len(lines) - max_lines + 1} more lines)")
+        else:
+            displayed_lines = lines
+        
+        # Limit the length of each line
+        formatted_lines = []
+        for line in displayed_lines:
+            if len(line) > max_line_length:
+                formatted_lines.append(line[:max_line_length-3] + "...")
+            else:
+                formatted_lines.append(line)
+        
+        return "\n".join(formatted_lines)
+
+###########################################
+# Memory Management and Validation
+###########################################
+
+class MemoryCheck:
+    """Handles memory threshold checking, conversions, and validation logic"""
+    
+    # Memory thresholds in KB
+    THRESHOLD_KB = MEMORY_THRESHOLD
+    
+    @classmethod
+    def has_high_memory(cls, memory_kb=None, memory_gb=None):
+        """
+        Check if memory meets high memory threshold (32GB or higher)
+        
+        Args:
+            memory_kb (int, optional): Memory in KB
+            memory_gb (int, optional): Memory in GB
+            
+        Returns:
+            bool: True if memory is 32GB or higher
+        """
+        if memory_gb is not None:
+            return memory_gb >= 32
+        elif memory_kb is not None:
+            return memory_kb >= cls.THRESHOLD_KB
+        return False
+    
+    @classmethod
+    def standardize_memory_gb(cls, memory_kb):
+        """
+        Convert KB memory value to standardized GB value
+        
+        Args:
+            memory_kb (int): Memory value in KB
+            
+        Returns:
+            int: Standardized memory value in GB (16, 24, 32, 64, or calculated value)
+        """
+        if memory_kb is None:
+            return None
+            
+        try:
+            kb = int(memory_kb)
+            
+            # Check against standard size ranges
+            for gb_size, (min_kb, max_kb) in MEMORY_SIZES.items():
+                if min_kb <= kb < max_kb:
+                    return gb_size
+            
+            # If not in standard ranges, calculate from KB
+            return round(kb / 1024)
+            
+        except (ValueError, TypeError):
+            return None
+    
+    @classmethod
+    def format_memory_display(cls, memory_kb, memory_gb=None):
+        """
+        Format memory for display with appropriate units
+        
+        Args:
+            memory_kb (int, optional): Memory in KB
+            memory_gb (int, optional): Memory in GB
+            
+        Returns:
+            str: Formatted memory string (e.g., "32 GB")
+        """
+        if memory_gb is not None:
+            return f"{memory_gb} GB"
+        elif memory_kb not in ("Unknown", None):
+            try:
+                gb_value = cls.standardize_memory_gb(memory_kb)
+                return f"{gb_value} GB" if gb_value else f"{memory_kb} KB"
+            except (ValueError, TypeError):
+                return f"{memory_kb} KB"
+        else:
+            return "Unknown"
+    
+    @classmethod
+    def validate_image_for_memory(cls, memory_kb, memory_gb, image_type):
+        """
+        Validate if image type is correct for memory capacity
+        
+        Args:
+            memory_kb (int, optional): Memory in KB
+            memory_gb (int, optional): Memory in GB
+            image_type (str): Either "32bit" or "64bit"
+            
+        Returns:
+            tuple: (result, message) where result is "PASS" or "FAIL"
+        """
+        # First determine if this is high memory
+        has_high_mem = cls.has_high_memory(memory_kb, memory_gb)
+        
+        # Format memory for message
+        if memory_gb is not None:
+            mem_display = f"{memory_gb} GB"
+        elif memory_kb is not None:
+            mem_gb = cls.standardize_memory_gb(memory_kb)
+            mem_display = f"{mem_gb} GB" if mem_gb else f"{memory_kb} KB"
+        else:
+            mem_display = "Unknown"
+        
+        # Validate memory against image type
+        if not has_high_mem:
+            if image_type == "32bit":
+                return "PASS", f"Running 32bit image with {mem_display} memory (correct)"
+            else:
+                return "FAIL", f"Running 64bit image with {mem_display} memory (should be 32bit)"
+        else:
+            if image_type == "64bit":
+                return "PASS", f"Running 64bit image with {mem_display} memory (correct)"
+            else:
+                return "FAIL", f"Running 32bit image with {mem_display} memory (should be 64bit)"
 
 ###########################################
 # Connection Management 
 ###########################################
 
 class Connection:
-    """Handles SSH connections to network switches with improved reliability"""
+    """Handles SSH connections to fabric switches"""
     
     def __init__(self, hostname, username=None, password=None, timeout=30, bind_address=None):
         """Initialize SSH connection handler"""
@@ -242,10 +432,9 @@ class Connection:
         self.child = None
         self.output = ""
         self.prompt = r'[#%>]\s*$'  # Match #, %, or > followed by optional whitespace
-        self.log = logging.getLogger(f'connection.{hostname}')
+        self.log = get_logger(f'connection.{hostname}')
         self.log.setLevel(logging.DEBUG)
         self.log.propagate = False
-        ensure_file_handler(self.log)
         self.bind_address = bind_address
         self.auth_failure = False  # Track authentication failures
         
@@ -302,10 +491,9 @@ class Connection:
                     f"-o ServerAliveInterval=5 "
                     f"-o ServerAliveCountMax=3 "
                     f"-o LogLevel=VERBOSE "
-                    f"{self.username}@{self.hostname}"
                 )
                 
-                self.log.debug(f"SSH command: {ssh_cmd}")
+                ssh_cmd += f"{self.username}@{self.hostname}"
                 
                 # Start SSH process with proper encoding
                 self.child = pexpect.spawn(
@@ -532,7 +720,7 @@ class Connection:
             
             if i == 0:  # Found prompt
                 output = self.child.before
-                self.output = output.strip()
+                self.output = CommandOutputProcessor.clean_output(output, self.hostname)
                 return "success", self.output
             elif i == 1:  # Timeout
                 self.output = self.child.before
@@ -634,6 +822,7 @@ class Connection:
                     
             # Join all output
             self.output = ''.join(output).strip()
+            self.output = CommandOutputProcessor.clean_output(self.output, self.hostname)
             self.log.debug(f"Collected {len(output)} chunks, {total_size} bytes total")
             
             # Check if we hit timeout limit
@@ -755,397 +944,286 @@ class Connection:
             "connected": self.child is not None and self.child.isalive(),
             "username": self.username
         }     
-    
-def handle_connection_error(device_name, device_ip, error, error_type=None, buffer=None, diagnostics=None, logger=None):
-    """
-    Unified error handler for connection issues across the script
-    
-    Args:
-        device_name: Name of the device (switch/APIC)
-        device_ip: IP address of the device
-        error: The exception or error string
-        error_type: Type of error (timeout, auth_failure, connection, etc.)
-        buffer: Any output buffer captured before the error
-        diagnostics: Dictionary to update with error information
-        logger: Logger instance to use (will use root logger if None)
-    
-    Returns:
-        dict: Error information dictionary with consistent structure
-    """
-    if logger is None:
-        logger = logging.getLogger(__name__)
-    
-    error_str = str(error)
-    
-    # Initialize error info structure
-    error_info = {
-        "device": device_name,
-        "ip": device_ip,
-        "status": "error",
-        "error_type": error_type or "unknown",
-        "error_message": error_str,
-        "buffer": buffer,
-        "retry_recommended": False
-    }
-    
-    # Process error types consistently
-    if error_type == "auth_failure" or "AUTH_FAILURE" in error_str:
-        error_info["error_type"] = "auth_failure"
-        error_info["display_message"] = "Authentication failed - check credentials"
-        error_info["retry_recommended"] = False
-        logger.error(f"Authentication failure on {device_name} ({device_ip}): {error_str}")
-        
-    elif error_type == "timeout" or "timed out" in error_str.lower():
-        error_info["error_type"] = "timeout"
-        error_info["display_message"] = "Connection timed out - check network connectivity"
-        error_info["retry_recommended"] = True
-        logger.error(f"Timeout connecting to {device_name} ({device_ip}): {error_str}")
-        
-    elif error_type == "connection" or "connection" in error_str.lower():
-        error_info["error_type"] = "connection"
-        error_info["display_message"] = "Connection error - check device availability"
-        error_info["retry_recommended"] = True
-        logger.error(f"Connection error to {device_name} ({device_ip}): {error_str}")
-    
-    elif error_type == "eof" or "eof" in error_str.lower():
-        error_info["error_type"] = "eof"
-        error_info["display_message"] = "Connection closed unexpectedly"
-        error_info["retry_recommended"] = True
-        logger.error(f"Connection closed to {device_name} ({device_ip}): {error_str}")
-        
-    elif error_type == "permission":
-        error_info["error_type"] = "permission"
-        error_info["display_message"] = "Permission denied"
-        error_info["retry_recommended"] = False
-        logger.error(f"Permission error on {device_name} ({device_ip}): {error_str}")
-        
-    else:
-        error_info["display_message"] = f"Error: {error_str}"
-        logger.error(f"Unspecified error on {device_name} ({device_ip}): {error_str}")
-    
-    # Update diagnostics dict if provided
-    if diagnostics is not None:
-        diagnostics["error_type"] = error_info["error_type"]
-        diagnostics["error_message"] = error_str
-        if buffer:
-            diagnostics["buffer"] = buffer
-    
-    # Return formatted error info
-    return error_info
 
 ###########################################
-# Data Collection Classes & Functions
+# API and Data Collection
 ###########################################
 
-def get_md5_hash(image_name=None, system_image_name=None):
-    """
-    Consolidated function for MD5 hash retrieval that handles multiple methods.
+class MD5Processor:
+    """Handles MD5 hash processing, validation, and error detection"""
     
-    This function attempts three different methods to retrieve the MD5 hash:
-    1. Query firmwareFirmware API using icurl (if system_image_name provided)
-    2. Read from md5sum file in /firmware/fwrepos/fwrepo/md5sum/
-    3. Calculate MD5 directly from the image file
+    def __init__(self):
+        """Initialize the MD5 processor"""
+        self.logger = get_logger('md5_processor')
     
-    Args:
-        image_name (str, optional): The kickstart image filename (e.g., "aci-n9000-dk9.16.0.8e.bin")
-        system_image_name (str, optional): The system image name for API query 
-                                         (e.g., "aci-n9000-system.16.0.8e.bin")
+    @staticmethod
+    def process_md5_output(output, switch_name=None):
+        """
+        Process MD5 command output to extract hash and detect errors
         
-    Returns:
-        str: MD5 hash or error message ("Image not found" if all methods fail)
-    """
-    if not image_name and not system_image_name:
-        logger.error("No image name or system image name provided")
-        return "Image not found"
-        
-    md5_hash = None
-    
-    # Method 1: Try API query if system_image_name is provided
-    if system_image_name:
-        logger.info(f"Method 1: Attempting to get MD5 from firmwareFirmware API for {system_image_name}")
-        md5_hash = _get_md5_from_api(system_image_name)
-        if md5_hash and md5_hash != "Image not found in API":
-            logger.info(f"Successfully retrieved MD5 from API: {md5_hash}")
-            return md5_hash
-        logger.warning("API method failed, falling back to md5sum file")
-    
-    # Convert system_image_name to kickstart_image_name if needed
-    if not image_name and system_image_name:
-        # Convert from "aci-n9000-system.X.Y.Z.bin" to "aci-n9000-dk9.X.Y.Z.bin"
-        image_name = system_image_name.replace("aci-n9000-system", "aci-n9000-dk9")
-        logger.info(f"Converted system image name to kickstart image name: {image_name}")
-    
-    # Method 2: Try md5sum file method
-    if image_name:
-        logger.info(f"Method 2: Attempting to get MD5 from md5sum file for {image_name}")
-        md5_hash = _get_md5_from_file(image_name)
-        if md5_hash and md5_hash != "Image not found in fwrepo":
-            logger.info(f"Successfully retrieved MD5 from file: {md5_hash}")
-            return md5_hash
-        logger.warning("MD5sum file method failed, falling back to direct calculation")
-    
-    # Method 3: Try direct calculation
-    if image_name:
-        logger.info(f"Method 3: Attempting to calculate MD5 directly for {image_name}")
-        md5_hash = _calculate_md5_directly(image_name)
-        if md5_hash:
-            logger.info(f"Successfully calculated MD5 directly: {md5_hash}")
-            return md5_hash
-        logger.warning("Direct MD5 calculation failed")
-    
-    # If all methods failed, return consistent error message
-    logger.error("All MD5 retrieval methods failed")
-    return "Image not found"
-
-def _get_md5_from_api(system_image_name):
-    """
-    Get MD5 hash from firmwareFirmware API using icurl.
-    
-    Args:
-        system_image_name (str): Name of the system image (e.g., aci-n9000-system.16.0.8e.bin)
-        
-    Returns:
-        str: MD5 hash or error message
-    """
-    logger.debug(f"Querying firmwareFirmware API for {system_image_name}")
-    
-    try:
-        # Construct the icurl command with proper escaping
-        icurl_cmd = f"icurl -gs 'http://127.0.0.1:7777/api/class/firmwareFirmware.json?query-target-filter=eq(firmwareFirmware.name,\"{system_image_name}\")'"
-        logger.debug(f"Executing icurl command: {icurl_cmd}")
-        
-        # Execute the command with timeout
-        process = subprocess.Popen(icurl_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate(timeout=30)
-        
-        if process.returncode != 0:
-            logger.warning(f"icurl command failed with return code {process.returncode}")
-            logger.debug(f"stderr: {stderr.decode('utf-8') if stderr else 'None'}")
-            return "Image not found in API"
-        
-        output = stdout.decode('utf-8')
-        logger.debug(f"icurl output: {output[:200]}...")  # Log first 200 chars
-        
-        # Parse the JSON output
-        json_data = json.loads(output)
-        
-        # Check if we have the expected data structure
-        if "imdata" in json_data and len(json_data["imdata"]) > 0:
-            firmware_obj = json_data["imdata"][0].get("firmwareFirmware", {}).get("attributes", {})
+        Args:
+            output: md5sum command output
+            switch_name: Optional switch name to clean from output
             
-            # Extract checksum from the JSON
-            checksum = firmware_obj.get("checksum")
-            if checksum and re.match(r'^[0-9a-f]{32}$', checksum):
-                return checksum
-            else:
-                logger.warning(f"checksum not found or invalid in API response")
+        Returns:
+            dict: Dictionary with md5_hash, error_type, error_message
+        """
+        # Use CommandOutputProcessor to do the actual parsing
+        result = CommandOutputProcessor.parse_md5_output(output, switch_name)
+        
+        # Transform the result format to maintain backward compatibility
+        md5_result = {
+            "md5_hash": result["md5_hash"],
+            "error_type": result["error_type"] if not result["success"] else None,
+            "error_message": result["error_message"] if not result["success"] else None
+        }
+        
+        return md5_result
+    
+    @staticmethod
+    def validate_md5(md5_hash, expected_32bit, expected_64bit):
+        """
+        Validate an MD5 hash against expected values
+        
+        Args:
+            md5_hash: Hash to validate
+            expected_32bit: Expected hash for 32-bit image
+            expected_64bit: Expected hash for 64-bit image
+            
+        Returns:
+            dict: Result with type ('32bit', '64bit', or 'unknown') and match status
+        """
+        if not md5_hash:
+            return {"type": "unknown", "matches": False, "message": "No MD5 hash provided"}
+            
+        # Check against expected hashes
+        if md5_hash == expected_32bit:
+            return {"type": "32bit", "matches": True, "message": "Running 32-bit image"}
+        elif md5_hash == expected_64bit:
+            return {"type": "64bit", "matches": True, "message": "Running 64-bit image"}
         else:
-            logger.warning("No firmware data found in API response")
-            
-        return "Image not found in API"
+            return {"type": "unknown", "matches": False, "message": "Running unrecognized image"}
+    
+    @classmethod
+    def get_md5_hash(cls, image_name=None, system_image_name=None):
+        """
+        Consolidated function for MD5 hash retrieval that handles multiple methods.
         
-    except subprocess.TimeoutExpired:
-        logger.warning("icurl command timed out after 30 seconds")
-        return "Image not found in API"
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse JSON from API response: {str(e)}")
-        return "Image not found in API"
-    except Exception as e:
-        logger.warning(f"Error getting MD5 from API: {str(e)}")
-        return "Image not found in API"
-
-def _get_md5_from_file(image_filename):
-    """
-    Get MD5 hash from md5sum file.
-    
-    Args:
-        image_filename (str): Name of the image file
+        This function attempts three different methods to retrieve the MD5 hash:
+        1. Query firmwareFirmware API using icurl (if system_image_name provided)
+        2. Read from md5sum file in /firmware/fwrepos/fwrepo/md5sum/
+        3. Calculate MD5 directly from the image file
         
-    Returns:
-        str: MD5 hash or error message
-    """
-    md5sum_file = f"/firmware/fwrepos/fwrepo/md5sum/{image_filename}"
-    
-    # Check if the file exists without printing errors
-    if not os.path.exists(md5sum_file):
-        logger.warning(f"MD5 file not found: {md5sum_file}")
-        return "Image not found in fwrepo"
-    
-    try:
-        # Read the md5sum file
-        with open(md5sum_file, 'r') as f:
-            content = f.read().strip()
+        Args:
+            image_name (str, optional): The kickstart image filename (e.g., "aci-n9000-dk9.16.0.8e.bin")
+            system_image_name (str, optional): The system image name for API query 
+                                            (e.g., "aci-n9000-system.16.0.8e.bin")
             
-        # Extract MD5 hash (first field)
-        if content:
-            md5_hash = content.split()[0]
-            if re.match(r'^[0-9a-f]{32}$', md5_hash):
+        Returns:
+            str: MD5 hash or error message ("Image not found" if all methods fail)
+        """
+        logger = get_logger('md5_processor')
+        
+        if not image_name and not system_image_name:
+            logger.error("No image name or system image name provided")
+            return "Image not found"
+            
+        md5_hash = None
+        
+        # Method 1: Try API query if system_image_name is provided
+        if system_image_name:
+            logger.info(f"Method 1: Attempting to get MD5 from firmwareFirmware API for {system_image_name}")
+            md5_hash = cls._get_md5_from_api(system_image_name)
+            if md5_hash and md5_hash != "Image not found in API":
+                logger.info(f"Successfully retrieved MD5 from API: {md5_hash}")
                 return md5_hash
+            logger.debug("API method failed, falling back to md5sum file")
         
-        logger.warning(f"Invalid content in MD5 file: {md5sum_file}")
-        return "Image not found in fwrepo"
+        # Convert system_image_name to kickstart_image_name if needed
+        if not image_name and system_image_name:
+            # Convert from "aci-n9000-system.X.Y.Z.bin" to "aci-n9000-dk9.X.Y.Z.bin"
+            image_name = system_image_name.replace("aci-n9000-system", "aci-n9000-dk9")
+            logger.info(f"Converted system image name to kickstart image name: {image_name}")
         
-    except Exception as e:
-        logger.warning(f"Error reading MD5 file {md5sum_file}: {str(e)}")
-        return "Image not found in fwrepo"
-
-def _calculate_md5_directly(image_filename):
-    """
-    Calculate MD5 hash directly from the image file.
+        # Method 2: Try md5sum file method
+        if image_name:
+            logger.info(f"Method 2: Attempting to get MD5 from md5sum file for {image_name}")
+            md5_hash = cls._get_md5_from_file(image_name)
+            if md5_hash and md5_hash != "Image not found in fwrepo":
+                logger.info(f"Successfully retrieved MD5 from file: {md5_hash}")
+                return md5_hash
+            logger.debug("MD5sum file method failed, falling back to direct calculation")
+        
+        # Method 3: Try direct calculation
+        if image_name:
+            logger.info(f"Method 3: Attempting to calculate MD5 directly for {image_name}")
+            md5_hash = cls._calculate_md5_directly(image_name)
+            if md5_hash:
+                logger.info(f"Successfully calculated MD5 directly: {md5_hash}")
+                return md5_hash
+            logger.debug("Direct MD5 calculation failed")
+        
+        # If all methods failed, return consistent error message
+        logger.error("All MD5 retrieval methods failed")
+        return "Image not found"
     
-    Args:
-        image_filename (str): Name of the image file
+    @staticmethod
+    def _get_md5_from_api(system_image_name):
+        """
+        Get MD5 hash from firmwareFirmware API using icurl.
         
-    Returns:
-        str: MD5 hash or None if calculation fails
-    """
-    image_path = f"/firmware/fwrepos/fwrepo/{image_filename}"
-    
-    # Check if the image file exists
-    if not os.path.exists(image_path):
-        logger.warning(f"Image file not found: {image_path}")
-        return None
-    
-    try:
-        import hashlib
-        md5 = hashlib.md5()
+        Args:
+            system_image_name (str): Name of the system image (e.g., aci-n9000-system.16.0.8e.bin)
+            
+        Returns:
+            str: MD5 hash or error message
+        """
+        logger = get_logger('md5_api')
+        logger.debug(f"Querying firmwareFirmware API for {system_image_name}")
         
-        with open(image_path, 'rb') as f:
-            # Read in chunks to handle large files
-            for chunk in iter(lambda: f.read(4096), b''):
-                md5.update(chunk)
-                
-        return md5.hexdigest()
-        
-    except Exception as e:
-        logger.error(f"Error calculating MD5: {str(e)}")
-        return None
-
-def get_dynamic_md5_hashes():
-    """
-    Dynamically retrieve MD5 hashes for the current APIC version's switch images
-    using a three-step approach:
-    1. Try firmwareFirmware API with icurl
-    2. Fall back to md5sum files
-    3. Calculate directly if needed
-    
-    Returns:
-        tuple: (md5_32bit, md5_64bit, version_string, images_missing)
-    """
-    logger.info("Getting APIC version and MD5 hashes dynamically")
-    
-    try:
-        # Get APIC version using icurl instead of acidiag avread
-        apic_version_cmd = "icurl -gs 'http://127.0.0.1:7777/api/class/firmwareCtrlrRunning.json'"
-        version_output = subprocess.check_output(apic_version_cmd, shell=True, text=True)
-        
-        # Parse the JSON output to find node-1 and extract version
-        apic_version = None
         try:
-            data = json.loads(version_output)
-            for item in data.get("imdata", []):
-                controller_data = item.get("firmwareCtrlrRunning", {}).get("attributes", {})
-                dn = controller_data.get("dn", "")
+            # Construct the icurl command with proper escaping
+            icurl_cmd = f"icurl -gs 'http://127.0.0.1:7777/api/class/firmwareFirmware.json?query-target-filter=eq(firmwareFirmware.name,\"{system_image_name}\")'"
+            logger.debug(f"Executing icurl command: {icurl_cmd}")
+            
+            # Execute the command with timeout
+            process = subprocess.Popen(icurl_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate(timeout=30)
+            
+            if process.returncode != 0:
+                logger.debug(f"icurl command failed with return code {process.returncode}")
+                logger.debug(f"stderr: {stderr.decode('utf-8') if stderr else 'None'}")
+                return "Image not found in API"
+            
+            output = stdout.decode('utf-8')
+            
+            # Use CommandOutputProcessor to clean the output
+            cleaned_output = CommandOutputProcessor.clean_output(output)
+            logger.debug(f"Cleaned API output: {cleaned_output[:200]}...")  # Log first 200 chars
+            
+            # Parse the JSON output
+            json_data = json.loads(cleaned_output)
+            
+            # Check if we have the expected data structure
+            if "imdata" in json_data and len(json_data["imdata"]) > 0:
+                firmware_obj = json_data["imdata"][0].get("firmwareFirmware", {}).get("attributes", {})
                 
-                # Look for node-1 in the DN
-                if "node-1" in dn:
-                    apic_version = controller_data.get("version")
-                    logger.info(f"Found APIC version from node-1: {apic_version}")
-                    break
+                # Extract checksum from the JSON
+                checksum = firmware_obj.get("checksum")
+                if checksum and re.match(r'^[0-9a-f]{32}$', checksum):
+                    return checksum
+                else:
+                    logger.debug(f"checksum not found or invalid in API response")
+            else:
+                logger.debug("No firmware data found in API response")
+                
+            return "Image not found in API"
             
-            # If node-1 not found, try to get version from any APIC node
-            if not apic_version and data.get("imdata"):
-                for item in data.get("imdata", []):
-                    controller_data = item.get("firmwareCtrlrRunning", {}).get("attributes", {})
-                    apic_version = controller_data.get("version")
-                    if apic_version:
-                        logger.info(f"Found APIC version from alternate node: {apic_version}")
-                        break
+        except subprocess.TimeoutExpired:
+            logger.debug("icurl command timed out after 30 seconds")
+            return "Image not found in API"
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse JSON from API response: {str(e)}")
+            return "Image not found in API"
+        except Exception as e:
+            logger.debug(f"Error getting MD5 from API: {str(e)}")
+            return "Image not found in API"
+    
+    @staticmethod
+    def _get_md5_from_file(image_filename):
+        """
+        Get MD5 hash from md5sum file.
         
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON from icurl output: {version_output}")
-            raise RuntimeError("Failed to parse APIC version JSON")
+        Args:
+            image_filename (str): Name of the image file
             
-        if not apic_version:
-            logger.error(f"Could not extract version from JSON output: {version_output}")
-            raise RuntimeError("Failed to extract APIC version from JSON output")
+        Returns:
+            str: MD5 hash or error message
+        """
+        logger = get_logger('md5_file')
+        md5sum_file = f"/firmware/fwrepos/fwrepo/md5sum/{image_filename}"
         
-        logger.info(f"Found APIC version: {apic_version}")
+        # Check if the file exists without printing errors
+        if not os.path.exists(md5sum_file):
+            logger.debug(f"MD5 file not found: {md5sum_file}")
+            return "Image not found in fwrepo"
         
-        # Convert version format from '6.0(8e)' to '16.0(8e)' for switch images
-        # Handle versions with dots in the parentheses part (Usually a QA image)
-        version_base = apic_version.split('(')[0]
-        version_detail = apic_version.split('(')[1].rstrip(')')
-        
-        # The switch image version format starts with "1" prefix
-        switch_version = f"1{version_base}({version_detail})"
-        switch_version_dot = f"1{version_base}.{version_detail}"
-        logger.info(f"Converted to switch image version: {switch_version}")
-        
-        # Build image filenames
-        image_32bit = f"aci-n9000-dk9.{switch_version_dot}.bin"
-        image_64bit = f"aci-n9000-dk9.{switch_version_dot}-cs_64.bin"
-        
-        # Build system image names for firmware API query
-        system_image_32bit = f"aci-n9000-system.{switch_version_dot}.bin"
-        system_image_64bit = f"aci-n9000-system.{switch_version_dot}-cs_64.bin"
-        
-        logger.info(f"32-bit image: {image_32bit}")
-        logger.info(f"64-bit image: {image_64bit}")
-        logger.info(f"32-bit system image name for API: {system_image_32bit}")
-        logger.info(f"64-bit system image name for API: {system_image_64bit}")
-        
-        # STEP 1: Try using firmwareFirmware API first
-        md5_32bit = get_md5_hash(image_name=image_32bit, system_image_name=system_image_32bit)
-        md5_64bit = get_md5_hash(image_name=image_64bit, system_image_name=system_image_64bit)
-        
-        # Log which method was used for each image
-        if md5_32bit:
-            logger.info(f"Retrieved 32-bit MD5 from firmwareFirmware API: {md5_32bit}")
-        
-        if md5_64bit:
-            logger.info(f"Retrieved 64-bit MD5 from firmwareFirmware API: {md5_64bit}")
-        
-        # STEP 2: If API method failed for either image, try md5sum file method
-        if not md5_32bit or md5_32bit == "Image not found in API":
-            logger.info("Falling back to md5sum file for 32-bit image")
-            md5_32bit = get_md5_hash(image_32bit)
+        try:
+            # Read the md5sum file
+            with open(md5sum_file, 'r') as f:
+                content = f.read().strip()
             
-            if md5_32bit and md5_32bit != "Image not found in fwrepo":
-                logger.info(f"Retrieved 32-bit MD5 from md5sum file: {md5_32bit}")
-        
-        if not md5_64bit or md5_64bit == "Image not found in API":
-            logger.info("Falling back to md5sum file for 64-bit image")
-            md5_64bit = get_md5_hash(image_64bit)
+            # Clean the content using CommandOutputProcessor
+            cleaned_content = CommandOutputProcessor.clean_output(content)
             
-            if md5_64bit and md5_64bit != "Image not found in fwrepo":
-                logger.info(f"Retrieved 64-bit MD5 from md5sum file: {md5_64bit}")
+            # Extract MD5 hash (first field)
+            if cleaned_content:
+                # Try to extract using regex pattern for more reliability
+                md5_match = re.search(r'([0-9a-f]{32})', cleaned_content)
+                if md5_match:
+                    return md5_match.group(1)
+                
+                # If regex fails, try traditional first field split
+                md5_hash = cleaned_content.split()[0]
+                if re.match(r'^[0-9a-f]{32}$', md5_hash):
+                    return md5_hash
+            
+            logger.debug(f"Invalid content in MD5 file: {md5sum_file}")
+            return "Image not found in fwrepo"
+            
+        except Exception as e:
+            logger.debug(f"Error reading MD5 file {md5sum_file}: {str(e)}")
+            return "Image not found in fwrepo"
+
+    @staticmethod
+    def _calculate_md5_directly(image_filename):
+        """
+        Calculate MD5 hash directly from the image file.
         
-        # STEP 3: Both methods can fall back to direct calculation automatically
-        # as it's already implemented in get_md5_from_file
+        Args:
+            image_filename (str): Name of the image file
+            
+        Returns:
+            str: MD5 hash or None if calculation fails
+        """
+        logger = get_logger('md5_calc')
+        image_path = f"/firmware/fwrepos/fwrepo/{image_filename}"
         
-        # Check if both images were not found
-        images_missing = ((md5_32bit == "Image not found in fwrepo" or 
-                          md5_32bit == "Image not found in API" or 
-                          not md5_32bit) and 
-                         (md5_64bit == "Image not found in fwrepo" or 
-                          md5_64bit == "Image not found in API" or 
-                          not md5_64bit))
+        # Check if the image file exists
+        if not os.path.exists(image_path):
+            logger.debug(f"Image file not found: {image_path}")
+            return None
         
-        if images_missing:
-            logger.error("Neither 32-bit nor 64-bit images were found with any method")
-            # Ensure consistent return values for missing images
-            md5_32bit = "Image not found" if not md5_32bit or md5_32bit.startswith("Image not found") else md5_32bit
-            md5_64bit = "Image not found" if not md5_64bit or md5_64bit.startswith("Image not found") else md5_64bit
-        
-        return md5_32bit, md5_64bit, apic_version, images_missing
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Command failed with exit code {e.returncode}: {e.output if hasattr(e, 'output') else 'no output'}")
-        raise RuntimeError(f"Failed to get MD5 hashes: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error retrieving MD5 hashes: {str(e)}")
-        raise RuntimeError(f"Failed to get MD5 hashes: {str(e)}")
+        try:
+            # Try using system md5sum command first (usually faster than Python's implementation)
+            try:
+                md5sum_cmd = f"md5sum {image_path}"
+                output = subprocess.check_output(md5sum_cmd, shell=True, text=True)
+                
+                # Process the output using CommandOutputProcessor
+                md5_result = CommandOutputProcessor.parse_md5_output(output)
+                
+                if md5_result["success"]:
+                    return md5_result["md5_hash"]
+                
+                logger.debug("System md5sum failed, falling back to Python implementation")
+            except Exception as e:
+                logger.debug(f"System md5sum error: {str(e)}, falling back to Python implementation")
+            
+            # Fall back to Python's hashlib implementation
+            import hashlib
+            md5 = hashlib.md5()
+            
+            with open(image_path, 'rb') as f:
+                # Read in chunks to handle large files
+                for chunk in iter(lambda: f.read(4096), b''):
+                    md5.update(chunk)
+                    
+            return md5.hexdigest()
+            
+        except Exception as e:
+            logger.error(f"Error calculating MD5: {str(e)}")
+            return None
 
 class SwitchInfo:
     """Handles discovery and data collection from ACI switches"""
@@ -1199,13 +1277,21 @@ class SwitchInfo:
         Verify credentials by connecting to the APIC
         Returns True if successful, False otherwise
         """
-        verify_logger = logging.getLogger('verify_creds')
+        verify_logger = get_logger('verify_creds')
         verify_logger.setLevel(logging.DEBUG)
-        ensure_file_handler(verify_logger)
         verify_logger.propagate = False
         
         apic_addr = self.get_appliance_address()
         print(f"Verifying credentials against APIC ({apic_addr})...")
+        
+        # Preserve the original password
+        actual_password = self.password
+        
+        # If username is root, we need to use the debug token as the password
+        if self.username == "root":
+            # For root login, the debug token is the password
+            # Don't modify the ssh command line
+            verify_logger.info("Using root authentication with debug token")
         
         # Define patterns for matching various SSH connection stages
         host_key_pattern = r'Warning: Permanently added .* to the list of known hosts.'
@@ -1220,6 +1306,8 @@ class SwitchInfo:
         for attempt in range(max_attempts):
             try:
                 verify_logger.info(f"Attempt {attempt+1}/{max_attempts} to connect to APIC at {apic_addr}")
+                
+                # Use simple SSH command regardless of user - don't add debugtoken parameter
                 ssh_cmd = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {self.username}@{apic_addr}"
                 
                 # Create SSH process with timeout
@@ -1334,6 +1422,8 @@ class SwitchInfo:
                 # Timeout or EOF - check buffer for auth failures
                 else:
                     buffer_content = child.before.lower() if child.before else ""
+                    # Clean buffer content
+                    buffer_content = CommandOutputProcessor.clean_output(buffer_content, apic_addr)
                     verify_logger.debug(f"Buffer after timeout: {buffer_content}")
                     
                     # Check for auth failure indicators in buffer
@@ -1498,7 +1588,7 @@ class SwitchInfo:
     def get_switch_name(self, sw_ip):
         """Get switch name from IP using the fabricNode API data"""
         # Get a dedicated logger to avoid duplicates
-        name_logger = get_module_logger("switch_names")
+        name_logger = get_logger("switch_names")
         
         # First check if we already have this switch name cached
         if sw_ip in self.switch_names:
@@ -1563,10 +1653,10 @@ class SwitchInfo:
             # Use node ID in the fallback name if available
             if node_id:
                 self.switch_names[sw_ip] = f"node-{node_id}"
-                name_logger.warning(f"No name found for {sw_ip}, using fallback with node ID: {self.switch_names[sw_ip]}")
+                name_logger.debug(f"No name found for {sw_ip}, using fallback with node ID: {self.switch_names[sw_ip]}")
             else:
                 self.switch_names[sw_ip] = f"switch-{sw_ip}"
-                name_logger.warning(f"No name found for {sw_ip}, using fallback: {self.switch_names[sw_ip]}")
+                name_logger.debug(f"No name found for {sw_ip}, using fallback: {self.switch_names[sw_ip]}")
         
         return self.switch_names[sw_ip]
 
@@ -1655,7 +1745,7 @@ class SwitchInfo:
                                     
                                 logger.debug(f"Node {node_id} DIMM from {dn}: {cap_value} KB")
                             except ValueError:
-                                logger.warning(f"Invalid memory capacity value for node {node_id}: {cap}")
+                                logger.debug(f"Invalid memory capacity value for node {node_id}: {cap}")
                     
                     # Standardize memory to GB values
                     for node_id, mem_info in result_data.items():
@@ -1702,7 +1792,7 @@ class SwitchInfo:
                                     }
                                     logger.debug(f"Node {node_id} kickstart image (recovery mode): {image_name}")
                                 else:
-                                    logger.warning(f"Could not extract image name from recovery ksFile: {ks_file}")
+                                    logger.debug(f"Could not extract image name from recovery ksFile: {ks_file}")
                             else:
                                 # Normal boot mode pattern
                                 image_match = re.search(r'bootflash:(?:\/+)?([^\/]+\.bin)$', ks_file)
@@ -1716,7 +1806,7 @@ class SwitchInfo:
                                     }
                                     logger.debug(f"Node {node_id} kickstart image (normal mode): {image_name}")
                                 else:
-                                    logger.warning(f"Could not extract image name from ksFile: {ks_file}")
+                                    logger.debug(f"Could not extract image name from ksFile: {ks_file}")
                 
                 logger.info(f"Retrieved {attribute_type} data for {len(result_data)} switches")
                 
@@ -1760,57 +1850,17 @@ class SwitchInfo:
         
         return self.switch_kickstart
 
-def check_repodata(conn):
-    """
-    Check if the /bootflash/.rpmstore/patching/patchrepo/.repodata directory exists
-    
-    Args:
-        conn: An established SSH connection object
-        
-    Returns:
-        tuple: (result, output) where result is "PASS" if directory doesn't exist
-               or "FAIL" if it does exist
-    """
-    repodata_path = "/bootflash/.rpmstore/patching/patchrepo/.repodata"
-    
-    try:
-        # Run the ls command to check if the directory exists
-        result_type = conn.execute_command(f"ls -lh {repodata_path}")
-        output = conn.output
-        
-        # If the output contains "cannot access" or similar error, the file doesn't exist (PASS)
-        if "cannot access" in output or "No such file or directory" in output:
-            return "PASS", output
-        
-        # If the output contains file information (not empty), the file exists (FAIL)
-        elif output.strip() and not ("cannot access" in output or "No such file" in output):
-            return "FAIL", output
-        
-        # Any other case (maybe empty output or another error)
-        logger.debug(f"Repodata check returned ambiguous result: '{output}'")
-        # Default to PASS for ambiguous results
-        return "PASS", output
-    except Exception as e:
-        # If there was an error executing the command, consider it inconclusive
-        return "ERROR", f"Command execution error: {str(e)}"
+###########################################
+# Switch Data Collection and Processing
+###########################################
 
 class SwitchDataCollector:
     """Centralized handler for switch data collection and validation"""
     
-    # Common regex patterns for data extraction
-    MEMORY_PATTERN = r'with\s+(\d{7,8})\s+kB\s+of\s+memory'
-    IMAGE_PATH_PATTERNS = [
-        r'kickstart\s+image\s+file\s+is\s+:\s+(\S+)',
-        r'kickstart image file is:\s+(\S+)',
-        r'kickstart\s+image\s+file\s+is\s+(\S+)'
-    ]
-    MD5_PATTERN = r'([0-9a-f]{32})'
-    MEMORY_THRESHOLD = 32000000  # 32GB in KB
-    
     @staticmethod
     def extract_memory(version_output):
         """Extract memory capacity from version output"""
-        memory_match = re.search(SwitchDataCollector.MEMORY_PATTERN, version_output)
+        memory_match = re.search(MEMORY_PATTERN, version_output)
         if memory_match:
             return int(memory_match.group(1))
         return None
@@ -1824,7 +1874,7 @@ class SwitchDataCollector:
             recovery_mode = True
         
         # Try the standard kickstart patterns
-        for pattern in SwitchDataCollector.IMAGE_PATH_PATTERNS:
+        for pattern in IMAGE_PATH_PATTERNS:
             image_match = re.search(pattern, version_output)
             if image_match:
                 image_path = image_match.group(1)
@@ -1841,11 +1891,84 @@ class SwitchDataCollector:
         return None
     
     @staticmethod
-    def extract_md5(md5_output):
-        """Extract MD5 hash from command output"""
-        md5_match = re.search(SwitchDataCollector.MD5_PATTERN, md5_output)
-        return md5_match.group(1) if md5_match else None
-    
+    def extract_md5(md5_output, switch_name=None):
+        """
+        Extract MD5 hash from command output
+        
+        Args:
+            md5_output (str): Output from md5sum command
+            switch_name (str, optional): Switch hostname to clean from output
+            
+        Returns:
+            str or None: The extracted MD5 hash if found, otherwise None
+        """
+        # Use CommandOutputProcessor to parse the MD5 output
+        md5_result = CommandOutputProcessor.parse_md5_output(md5_output, switch_name)
+        
+        # Return the hash if successful, otherwise None
+        return md5_result["md5_hash"] if md5_result["success"] else None
+
+    @staticmethod
+    def extract_file_info(output, switch_name=None):
+        """
+        Extract file information from command output.
+        
+        Args:
+            output: Command output from ls -l command
+            switch_name: Optional switch name to clean from output
+            
+        Returns:
+            dict: Dictionary with file_owner, file_group, file_permissions, file_line
+        """
+        info = {
+            "file_owner": None,
+            "file_group": None, 
+            "file_permissions": None,
+            "file_line": None
+        }
+        
+        # Process each line looking for the bin file
+        for line in output.splitlines():
+            if not line or line.startswith("ls ") or (switch_name and line.strip() == switch_name):
+                continue
+                
+            if ".bin" in line:
+                # Clean up hostname if present
+                cleaned_line = line
+                if switch_name and switch_name in line:
+                    cleaned_line = line[:line.find(switch_name)].strip()
+                
+                # Store the raw line
+                info["file_line"] = cleaned_line
+                
+                # Try regex extraction first
+                owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+(\S+)', cleaned_line)
+                if owner_match:
+                    info["file_owner"] = owner_match.group(1)
+                    info["file_group"] = owner_match.group(2)
+                    
+                    # Get permissions if available
+                    perm_match = re.search(r'(-[rwx-]+)\s+\d+\s+', cleaned_line)
+                    info["file_permissions"] = perm_match.group(1) if perm_match else "-unknown-"
+                    
+                    # Format complete details
+                    info["file_details"] = f"{info['file_permissions']} {info['file_owner']} {info['file_group']}"
+                    return info
+                
+                # Fallback: try simple split by whitespace
+                parts = cleaned_line.split()
+                if len(parts) >= 5:
+                    try:
+                        info["file_permissions"] = parts[0] if parts[0].startswith('-') else "-unknown-"
+                        info["file_owner"] = parts[2]
+                        info["file_group"] = parts[3]
+                        info["file_details"] = f"{info['file_permissions']} {info['file_owner']} {info['file_group']}"
+                        return info
+                    except IndexError:
+                        pass
+        
+        return info
+
     @staticmethod
     def extract_file_owner_info(conn, image_path, switch_data, diagnostics):
         """
@@ -1858,77 +1981,16 @@ class SwitchDataCollector:
             diagnostics: Dict to update with diagnostic info
         """
         try:
-            result_type = conn.execute_command(f"ls -lh {image_path}")
-            ls_output = conn.output
+            result_type, ls_output = conn.execute_command(f"ls -lh {image_path}")
             
-            # Store the raw ls output for later parsing
+            # Store the raw ls output
             switch_data["raw_ls_output"] = ls_output.strip()
             diagnostics["raw_ls_output"] = ls_output.strip()
             
-            # Extract the relevant line containing file information
-            file_info_line = None
-            for line in ls_output.splitlines():
-                # Skip command line or hostname-only lines
-                if line.startswith("ls ") or line.strip() == switch_data.get("switch", ""):
-                    continue
-                    
-                # Look for the image filename in the line
-                if ".bin" in line:
-                    file_info_line = line.strip()
-                    # Store the file line in both places
-                    switch_data["file_line"] = file_info_line
-                    diagnostics["file_line"] = file_info_line
-                    break
-            
-            # If we found a relevant line, parse it
-            if file_info_line:
-                # Look for pattern like "-rw------- 1 admin admin 2.4G"
-                owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+(\S+)', file_info_line)
-                
-                if owner_match:
-                    owner = owner_match.group(1)
-                    group = owner_match.group(2)
-                    
-                    # Extract file permissions if possible
-                    perm_match = re.search(r'(-[rwx-]+)\s+\d+\s+', file_info_line)
-                    permissions = perm_match.group(1) if perm_match else "-unknown-"
-                    
-                    # Store the owner information directly in switch_data
-                    switch_data["file_owner"] = owner
-                    switch_data["file_group"] = group
-                    switch_data["file_permissions"] = permissions
-                    switch_data["file_details"] = f"{permissions} {owner} {group}"
-                    
-                    # Also store in diagnostics
-                    diagnostics["file_owner"] = owner
-                    diagnostics["file_group"] = group
-                    diagnostics["file_permissions"] = permissions
-                    diagnostics["file_details"] = f"{permissions} {owner} {group}"
-                    
-                else:
-                    # If regex pattern failed, try simpler approach - extract by position
-                    parts = file_info_line.split()
-                    
-                    if len(parts) >= 5:  # Should have at least 5 parts
-                        try:
-                            # Typical structure: permissions links owner group size date time filename
-                            permissions = parts[0] if parts[0].startswith('-') else "-unknown-"
-                            owner = parts[2] 
-                            group = parts[3]
-                            
-                            # Store directly in switch_data
-                            switch_data["file_owner"] = owner
-                            switch_data["file_group"] = group
-                            switch_data["file_permissions"] = permissions
-                            switch_data["file_details"] = f"{permissions} {owner} {group}"
-                            
-                            # Also store in diagnostics
-                            diagnostics["file_owner"] = owner
-                            diagnostics["file_group"] = group
-                            diagnostics["file_permissions"] = permissions
-                            diagnostics["file_details"] = f"{permissions} {owner} {group}"
-                        except IndexError:
-                            pass
+            # Use the centralized helper function
+            get_kickstart_ownership(ls_output, switch_data.get("switch", ""), 
+                                        switch_data, diagnostics)
+                        
         except Exception as e:
             diagnostics["file_info_error"] = str(e)
 
@@ -1940,7 +2002,7 @@ class SwitchDataCollector:
         Args:
             sw_name: Switch name for identification
             sw_ip: Switch IP address
-            connection: An established SSH connection object
+            conn: An established SSH connection object
             switch_info: SwitchInfo instance with pre-collected data
             kickstart_image: Pre-collected kickstart image path (optional)
             memory_kb: Pre-collected memory in KB (optional)
@@ -1978,19 +2040,9 @@ class SwitchDataCollector:
                     else:
                         # Handle case where mem_info is just the KB value (backward compatibility)
                         result["memory_kb"] = mem_info
-                        kb_value = mem_info
-                        # Convert to standardized GB value
-                        if kb_value < 20000:
-                            result["memory_gb"] = 16
-                        elif kb_value < 30000:
-                            result["memory_gb"] = 24
-                        elif kb_value < 40000:
-                            result["memory_gb"] = 32
-                        elif kb_value < 70000 and kb_value > 60000:
-                            result["memory_gb"] = 64
-                        else:
-                            result["memory_gb"] = round(kb_value / 1024)
-                        logger.debug(f"Converted memory data for {sw_name}: {kb_value} KB to {result['memory_gb']} GB")
+                        # Convert to standardized GB value using MemoryCheck
+                        result["memory_gb"] = MemoryCheck.standardize_memory_gb(mem_info)
+                        logger.debug(f"Converted memory data for {sw_name}: {mem_info} KB to {result['memory_gb']} GB")
                 
                 # Try to get kickstart image data if not provided directly
                 if kickstart_image is None and node_id and hasattr(switch_info, 'switch_kickstart') and node_id in switch_info.switch_kickstart:
@@ -2003,57 +2055,67 @@ class SwitchDataCollector:
             
             # Get version info only if we couldn't get kickstart image OR memory data
             if result.get("image_path") is None or (result.get("memory_kb") is None and result.get("memory_gb") is None):
-                result_type = conn.execute_command("show version")
-                if result_type != "prompt":
+                result_type, version_output = conn.execute_command("show version")
+                if result_type != "success":
                     raise RuntimeError(f"Failed to get version info: {result_type}")
                     
-                version_output = conn.output
-                
+                # Clean output using CommandOutputProcessor
+                cleaned_version_output = CommandOutputProcessor.clean_output(version_output, sw_name)
+                    
                 # If memory wasn't retrieved, try extracting it from show version
                 if result.get("memory_kb") is None and result.get("memory_gb") is None:
-                    memory_kb = SwitchDataCollector.extract_memory(version_output)
-                    # Convert to standardized GB value
+                    memory_kb = SwitchDataCollector.extract_memory(cleaned_version_output)
+                    # Convert to standardized GB value using MemoryCheck
                     if memory_kb:
                         result["memory_kb"] = memory_kb
-                        if memory_kb < 20000:
-                            result["memory_gb"] = 16
-                        elif memory_kb < 30000:
-                            result["memory_gb"] = 24
-                        elif memory_kb < 40000:
-                            result["memory_gb"] = 32
-                        elif memory_kb < 70000 and memory_kb > 60000:
-                            result["memory_gb"] = 64
-                        else:
-                            result["memory_gb"] = round(memory_kb / 1024)
+                        result["memory_gb"] = MemoryCheck.standardize_memory_gb(memory_kb)
                 
                 # Extract kickstart image path if we don't have it yet
                 if result.get("image_path") is None:
-                    image_path = SwitchDataCollector.extract_image_path(version_output)
+                    image_path = SwitchDataCollector.extract_image_path(cleaned_version_output)
                     result["image_path"] = image_path
             
             # Get MD5 checksum of the image if we have a path
             if result.get("image_path"):
                 # Get MD5 checksum of the image
                 kickstart_image = result["image_path"]
-                result_type = conn.execute_command(f"md5sum {kickstart_image}")
-                md5_output = conn.output
-                md5_hash = SwitchDataCollector.extract_md5(md5_output)
+                result_type, md5_output = conn.execute_command(f"md5sum {kickstart_image}")
+                
+                # Process MD5 output using CommandOutputProcessor instead of MD5Processor
+                md5_result = CommandOutputProcessor.parse_md5_output(md5_output, sw_name)
                 
                 # Store the command output to help diagnose MD5 retrieval failures
                 result["md5_command_output"] = md5_output
                 
-                if not md5_hash:
-                    # Try to fix permissions and retry
-                    conn.execute_command(f"chmod 666 {kickstart_image}")
-                    result_type = conn.execute_command(f"md5sum {kickstart_image}")
-                    if result_type != "prompt":
-                        raise RuntimeError(f"Failed to get MD5 checksum: {result_type}")
+                # Check if there was an error
+                if not md5_result["success"]:
+                    # Store error information
+                    result["md5_error_type"] = md5_result["error_type"]
+                    result["md5_error_message"] = md5_result["error_message"]
+                    
+                    # If we have a permission error, and we haven't fixed permissions yet
+                    if md5_result["error_type"] == "permission" and not result.get("ownership_fixed"):
+                        # Traditional retry with chmod if we didn't already fix permissions
+                        conn.execute_command(f"chmod 666 {kickstart_image}")
+                        result_type, retry_output = conn.execute_command(f"md5sum {kickstart_image}")
                         
-                    md5_output = conn.output
-                    result["md5_command_output"] = md5_output
-                    md5_hash = SwitchDataCollector.extract_md5(md5_output)
-                
-                result["md5sum"] = md5_hash
+                        # Process retry output using CommandOutputProcessor
+                        retry_result = CommandOutputProcessor.parse_md5_output(retry_output, sw_name)
+                        result["md5_command_output"] = retry_output
+                        
+                        if retry_result["success"]:
+                            # Retry was successful
+                            result["md5sum"] = retry_result["md5_hash"]
+                            # Clear error information
+                            result.pop("md5_error_type", None)
+                            result.pop("md5_error_message", None)
+                        else:
+                            # Retry failed, keep error information
+                            result["md5_retry_error_type"] = retry_result["error_type"]
+                            result["md5_retry_error_message"] = retry_result["error_message"]
+                else:
+                    # No error, store the hash
+                    result["md5sum"] = md5_result["md5_hash"]
                 
             # Set status to success if we got the critical information
             if ((result.get("memory_kb") is not None or result.get("memory_gb") is not None) and 
@@ -2085,23 +2147,15 @@ class SwitchDataCollector:
             error_details = switch_data.get("error", "unknown error")
             return "ERROR", f"Could not retrieve complete information: {error_details}"
         
-        # Prefer memory_gb if available, otherwise use memory_kb and threshold
-        if "memory_gb" in switch_data and switch_data["memory_gb"] is not None:
-            memory_gb = switch_data.get("memory_gb")
-            # Memory threshold is 32GB
-            has_high_memory = memory_gb >= 32
-        else:
-            memory_kb = switch_data.get("memory_kb")
-            # Memory threshold is 32GB in KB (32000000)
-            has_high_memory = memory_kb >= SwitchDataCollector.MEMORY_THRESHOLD if memory_kb else False
-        
+        # Extract memory data
+        memory_kb = switch_data.get("memory_kb")
+        memory_gb = switch_data.get("memory_gb")
         md5sum = switch_data.get("md5sum")
         
         # More specific error messages based on what's missing
-        if (not has_high_memory and not "memory_gb" in switch_data and 
-                not "memory_kb" in switch_data) and not md5sum:
+        if not memory_kb and not memory_gb and not md5sum:
             return "ERROR", "Could not retrieve Memory and MD5 information"
-        elif not has_high_memory and not "memory_gb" in switch_data and not "memory_kb" in switch_data:
+        elif not memory_kb and not memory_gb:
             return "ERROR", "Could not retrieve Memory information"
         elif not md5sum:
             return "ERROR", "Could not retrieve MD5 information"
@@ -2114,17 +2168,8 @@ class SwitchDataCollector:
         else:
             return "WARNING", f"Running an unexpected image (MD5: {md5sum})"
         
-        # Validate memory against image type
-        if not has_high_memory:
-            if image_type == "32bit":
-                return "PASS", "Running 32bit image with less than 32GB memory"
-            else:
-                return "FAIL", "Running 64bit image with less than 32GB memory"
-        else:
-            if image_type == "64bit":
-                return "PASS", "Running 64bit image with 32GB memory or greater"
-            else:
-                return "FAIL", "Running 32bit image with 32GB memory or greater"
+        # Use MemoryCheck class to validate image against memory
+        return MemoryCheck.validate_image_for_memory(memory_kb, memory_gb, image_type)
     
     @staticmethod
     def categorize_error(switch_data):
@@ -2209,446 +2254,7 @@ class SwitchDataCollector:
             return f"Data collection incomplete: {switch_data.get('error', 'unknown error')}"
 
 ###########################################
-# Switch Processing
-###########################################
-
-def process_switch(sw_ip, switch_info, progress_bar, username, password, md5_32bit, md5_64bit, bind_addr=None, is_modular_spine=False):
-    """Process a single switch and collect results with robust error handling"""
-    sw_name = switch_info.get_switch_name(sw_ip)
-    # Create diagnostics dict with an error_type field to track the nature of the error
-    diagnostics = {
-        "error_type": None  # Will be set to "connection", "memory_retrieval", "md5_retrieval", etc.
-    }
-    
-    # Common result structure with defaults
-    switch_data = {
-        "switch": sw_name,
-        "ip": sw_ip,
-        "status": "error",
-        "result": "ERROR",
-        "message": "Processing not started",
-        "diagnostics": diagnostics
-    }
-    
-    try:
-        progress_bar.update(f"Connecting to {sw_name}", 0)
-        
-        # Retrieve pre-collected kickstart image data if available
-        kickstart_image = None
-        memory_kb = None
-        memory_gb = None
-        node_id = switch_info.get_switch_id(sw_ip)
-        
-        # Retrieve kickstart image information if available
-        if node_id and hasattr(switch_info, 'switch_kickstart') and node_id in switch_info.switch_kickstart:
-            kickstart_data = switch_info.switch_kickstart[node_id]
-            kickstart_image = kickstart_data['full_path']
-            # Store boot mode information for display
-            if 'mode' in kickstart_data:
-                switch_data["boot_mode"] = kickstart_data['mode']
-            logger.debug(f"Using pre-collected kickstart image for {sw_name}: {kickstart_image}")
-            # Add to switch_data for use in check functions
-            switch_data["image_path"] = kickstart_image
-            
-        # Retrieve memory information if available
-        if node_id and hasattr(switch_info, 'switch_memory') and node_id in switch_info.switch_memory:
-            mem_info = switch_info.switch_memory[node_id]
-            if isinstance(mem_info, dict) and 'kb' in mem_info and 'gb' in mem_info:
-                memory_kb = mem_info['kb']
-                memory_gb = mem_info['gb']
-                # Add to switch_data for use in check functions
-                switch_data["memory_kb"] = memory_kb
-                switch_data["memory_gb"] = memory_gb
-                logger.debug(f"Using pre-collected memory data for {sw_name}: {memory_kb} KB ({memory_gb} GB)")
-        
-        # Use context manager for connection handling
-        with Connection(sw_ip, username, password, timeout=2, bind_address=bind_addr) as conn:
-            # Authentication failures should be caught immediately with no retry
-            try:
-                # __enter__ already called connect in the context manager
-                if not conn.child:  # Check if connection was established
-                    # Handle connection issues
-                    error_info = handle_connection_error(
-                        device_name=sw_name,
-                        device_ip=sw_ip,
-                        error="Failed to connect",
-                        error_type="connection",
-                        diagnostics=diagnostics,
-                        logger=logging.getLogger(f'connection.{sw_ip}')
-                    )
-                    switch_data["message"] = error_info["display_message"]
-                    return switch_data
-            except RuntimeError as e:
-                if "AUTH_FAILURE" in str(e):
-                    # Handle authentication failures
-                    error_info = handle_connection_error(
-                        device_name=sw_name,
-                        device_ip=sw_ip,
-                        error=e,
-                        error_type="auth_failure",
-                        logger=logging.getLogger(f'connection.{sw_ip}')
-                    )
-                    raise RuntimeError(f"AUTH_FAILURE on {sw_name}")
-                else:
-                    # Handle other runtime errors
-                    error_info = handle_connection_error(
-                        device_name=sw_name,
-                        device_ip=sw_ip,
-                        error=e,
-                        error_type="exception",
-                        diagnostics=diagnostics,
-                        logger=logging.getLogger(f'connection.{sw_ip}')
-                    )
-                    raise
-            
-            # Connection successful - now perform checks based on switch type
-            if is_modular_spine:
-                # Pass the pre-collected kickstart image path and memory information
-                switch_data = perform_modular_spine_checks(
-                    conn, sw_name, sw_ip, progress_bar, md5_64bit, 
-                    kickstart_image=kickstart_image, memory_kb=memory_kb, memory_gb=memory_gb
-                )
-            else:
-                # For regular switches, ALSO pass the kickstart_image and memory data to avoid duplicate show version
-                regular_switch_data = perform_regular_switch_checks(
-                    conn, sw_name, sw_ip, progress_bar, switch_info, md5_32bit, md5_64bit, 
-                    kickstart_image=kickstart_image, memory_kb=memory_kb, memory_gb=memory_gb
-                )
-                
-                # Copy everything from regular_switch_data to switch_data
-                switch_data = regular_switch_data
-                
-                # Ensure raw_ls_output is in the main switch_data if it was collected
-                if "diagnostics" in regular_switch_data and "raw_ls_output" in regular_switch_data["diagnostics"]:
-                    switch_data["raw_ls_output"] = regular_switch_data["diagnostics"]["raw_ls_output"]
-            
-            # Add diagnostics reference to the result
-            switch_data["diagnostics"] = diagnostics
-        
-    except Exception as e:
-        # Handle any unexpected exceptions
-        error_msg = str(e)
-        diagnostics["error_type"] = "exception"
-        diagnostics["exception"] = error_msg
-        switch_data["message"] = f"Exception: {error_msg}"
-        return switch_data
-    finally:
-        # Always mark as completed in progress bar
-        progress_bar.update(f"Completed {sw_name}", 1)
-    
-    return switch_data
-
-def perform_modular_spine_checks(conn, sw_name, sw_ip, progress_bar, md5_64bit, kickstart_image=None, 
-                               memory_kb=None, memory_gb=None):
-    """
-    Perform checks specific to modular spine switches - always check for 64-bit image
-    
-    Args:
-        conn: An established SSH connection object
-        sw_name: Switch name for identification
-        sw_ip: Switch IP address
-        progress_bar: Progress bar object for updates
-        md5_64bit: MD5 checksum for 64-bit image (required for modular spines)
-        kickstart_image: Pre-collected kickstart image path from APIC API (optional)
-        memory_kb: Pre-collected memory in KB (optional)
-        memory_gb: Pre-collected memory in GB (optional)
-    
-    Returns:
-        dict: Switch data with validation results
-    """
-    # Initialize diagnostics dict
-    diagnostics = {"error_type": None}
-    
-    # Create data structure for modular spines
-    switch_data = {
-        "switch": sw_name,
-        "ip": sw_ip,
-        "status": "success",
-        "memory_kb": memory_kb,  # Use pre-collected value if provided
-        "memory_gb": memory_gb,  # Use pre-collected value if provided
-        "image_path": kickstart_image,  # Use pre-collected path if available
-        "md5sum": None,
-        "result": "INFO",
-        "message": "Modular spine"
-    }
-    
-    # Only run show version if we don't already have the kickstart image path
-    if not kickstart_image:
-        # We need to fetch the image path using show version
-        progress_bar.update(f"{sw_name}: Getting image path", 0)
-        result_type = conn.execute_command("show version")
-        if result_type == "prompt":
-            version_output = conn.output
-            
-            # Extract kickstart image path
-            image_path = SwitchDataCollector.extract_image_path(version_output)
-            switch_data["image_path"] = image_path
-            
-            # Extract memory information if available (only for reporting) and not pre-collected
-            if not memory_kb and not memory_gb:
-                memory_kb = SwitchDataCollector.extract_memory(version_output)
-                if memory_kb:
-                    switch_data["memory_kb"] = memory_kb
-                    # Convert to standardized GB value for display
-                    if memory_kb < 20000:
-                        switch_data["memory_gb"] = 16
-                    elif memory_kb < 30000:
-                        switch_data["memory_gb"] = 24
-                    elif memory_kb < 40000:
-                        switch_data["memory_gb"] = 32
-                    elif memory_kb < 70000 and memory_kb > 60000:
-                        switch_data["memory_gb"] = 64
-                    else:
-                        switch_data["memory_gb"] = round(memory_kb / 1024)
-        else:
-            switch_data["result"] = "ERROR" 
-            switch_data["message"] = "Failed to retrieve image information"
-            switch_data["status"] = "error"
-    
-    # Get MD5 checksum of the image if we have the path
-    if switch_data["image_path"]:
-        kickstart_image = switch_data["image_path"]
-        progress_bar.update(f"{sw_name}: Retrieving MD5 hash", 0)
-        result_type = conn.execute_command(f"md5sum {kickstart_image}")
-        md5_output = conn.output
-        md5_hash = SwitchDataCollector.extract_md5(md5_output)
-        
-        # Store the command output to help diagnose MD5 retrieval failures
-        switch_data["md5_command_output"] = md5_output
-        
-        if not md5_hash:
-            # Try to fix permissions and retry
-            conn.execute_command(f"chmod 666 {kickstart_image}")
-            result_type = conn.execute_command(f"md5sum {kickstart_image}")
-            if result_type == "prompt":
-                md5_output = conn.output
-                switch_data["md5_command_output"] = md5_output
-                md5_hash = SwitchDataCollector.extract_md5(md5_output)
-        
-        switch_data["md5sum"] = md5_hash
-        
-        # Check for permission denied in md5 output and get file owner info
-        if "md5_command_output" in switch_data and "permission denied" in switch_data["md5_command_output"].lower():
-            progress_bar.update(f"{sw_name}: Getting file permissions", 0)
-            image_path = switch_data.get('image_path', '')
-            
-            if image_path:
-                # Use our helper function to extract file owner information
-                SwitchDataCollector.extract_file_owner_info(conn, image_path, switch_data, diagnostics)
-        
-        # IMPORTANT: Modular spines MUST use 64-bit image regardless of memory
-        if md5_hash:
-            if md5_hash == md5_64bit:
-                switch_data["result"] = "PASS"
-                switch_data["message"] = "Running correct 64-bit image for modular spine"
-            else:
-                switch_data["result"] = "FAIL"
-                switch_data["message"] = "Modular spine running incorrect image (must use 64-bit image)"
-        else:
-            switch_data["result"] = "ERROR"
-            switch_data["message"] = "Could not retrieve MD5 information"
-    else:
-        switch_data["result"] = "ERROR" 
-        switch_data["message"] = "Missing kickstart image path"
-        switch_data["status"] = "error"
-    
-    # Check Repodata on modular spines
-    progress_bar.update(f"{sw_name}: Checking Repodata", 0)
-    repodata_result, repodata_output = check_repodata(conn)
-    switch_data["repodata_check"] = repodata_result
-    switch_data["repodata_output"] = repodata_output
-    
-    # Update message to include Repodata check result
-    md5_message = switch_data["message"]
-    if repodata_result == "FAIL":
-        switch_data["message"] = f"{md5_message} | Repodata Check: FAIL - .repodata directory exists"
-    elif repodata_result == "PASS":
-        switch_data["message"] = f"{md5_message} | Repodata Check: PASS"
-    else:
-        switch_data["message"] = f"{md5_message} | Repodata Check: ERROR"
-    
-    # Add diagnostics to the result
-    switch_data["diagnostics"] = diagnostics
-    
-    return switch_data
-
-def perform_regular_switch_checks(conn, sw_name, sw_ip, progress_bar, switch_info, md5_32bit, md5_64bit, 
-                                kickstart_image=None, memory_kb=None, memory_gb=None):
-    """
-    Perform checks for leafs and non-modular spine switches
-    
-    Args:
-        conn: An established SSH connection object
-        sw_name: Switch name for identification
-        sw_ip: Switch IP address
-        progress_bar: Progress bar object for updates
-        switch_info: SwitchInfo instance with APIC-collected data
-        md5_32bit: MD5 checksum for 32-bit image
-        md5_64bit: MD5 checksum for 64-bit image
-        kickstart_image: Pre-collected kickstart image path (optional)
-        memory_kb: Pre-collected memory in KB (optional)
-        memory_gb: Pre-collected memory in GB (optional)
-        
-    Returns:
-        dict: Switch data with validation results
-    """
-    # Initialize result structure and diagnostics
-    diagnostics = {"error_type": None}
-    
-    # Collect switch data with timeout protection
-    progress_bar.update(f"{sw_name}: Checking memory capacity", 0)
-    
-    # Start a timer to detect slow operations
-    start_time = time.time()
-    
-    # Pass kickstart_image, memory_kb and memory_gb to collect_data to avoid unnecessary show version commands
-    switch_data = SwitchDataCollector.collect_data(sw_name, sw_ip, conn, switch_info, 
-                                                 kickstart_image, memory_kb, memory_gb)
-    
-    collection_time = time.time() - start_time
-    switch_data["collection_time"] = f"{collection_time:.1f}s"
-    
-    # Check for permission denied in md5 output and get file owner info
-    if "md5_command_output" in switch_data and "permission denied" in switch_data["md5_command_output"].lower():
-        progress_bar.update(f"{sw_name}: Getting file permissions", 0)
-        image_path = switch_data.get('image_path', '')
-        
-        if image_path:
-            # Use our helper function to extract file owner information
-            SwitchDataCollector.extract_file_owner_info(conn, image_path, switch_data, diagnostics)
-    
-    # Categorize any errors that occurred during data collection
-    if switch_data["status"] != "success":
-        diagnostics.update(SwitchDataCollector.categorize_error(switch_data))
-    
-    # Make sure md5_command_output is directly added to diagnostics
-    if "md5_command_output" in switch_data:
-        diagnostics["md5_command_output"] = switch_data["md5_command_output"]
-    
-    # Always check Repodata regardless of image validation status
-    progress_bar.update(f"{sw_name}: Checking Repodata", 0)
-    repodata_result, repodata_output = check_repodata(conn)
-    switch_data["repodata_check"] = repodata_result
-    switch_data["repodata_output"] = repodata_output
-    
-    # If data collection was successful, validate image
-    if switch_data["status"] == "success":
-        progress_bar.update(f"{sw_name}: Validating image", 0)
-        md5_result, md5_message = SwitchDataCollector.validate_image(switch_data, md5_32bit, md5_64bit)
-        switch_data["result"] = md5_result
-        
-        # Combine MD5 and Repodata results in the message
-        if repodata_result == "PASS":
-            switch_data["message"] = f"{md5_message} | Repodata Check: PASS"
-        elif repodata_result == "FAIL":
-            switch_data["message"] = f"{md5_message} | Repodata Check: FAIL - .repodata directory exists"
-        else:
-            switch_data["message"] = f"{md5_message} | Repodata Check: ERROR"
-    else:
-        switch_data["result"] = "ERROR"
-        error_message = SwitchDataCollector.get_error_message(switch_data, diagnostics)
-        
-        # Combine error message with Repodata result
-        if repodata_result == "PASS":
-            switch_data["message"] = f"{error_message} | Repodata Check: PASS" 
-        elif repodata_result == "FAIL":
-            switch_data["message"] = f"{error_message} | Repodata Check: FAIL - .repodata directory exists"
-        else:
-            switch_data["message"] = f"{error_message} | Repodata Check: ERROR"
-    
-    # Add diagnostics to the result
-    switch_data["diagnostics"] = diagnostics
-    
-    return switch_data
-
-def process_switches_in_batches(switch_ips, mod_spine_ips, switch_info, progress_bar, 
-                              md5_32bit, md5_64bit, apic_addr, batch_size=None, result_logger=None):
-    """
-    Process switches in batches with dynamic resource management
-    """
-    # Get a dedicated logger for this function to avoid duplicates
-    batch_logger = get_module_logger("process_switches")
-    
-    # Check system resources to determine optimal batch size
-    if batch_size is None:
-        resources = check_system_resources()
-        batch_size = resources.get("recommended_threads", 5)
-    
-    # Log but don't print to console
-    batch_logger.info(f"Using batch size of {batch_size} concurrent connections")
-    
-    results = {}
-    all_ips = switch_ips + mod_spine_ips
-    total_count = len(all_ips)
-    completed = 0
-    
-    # Process switches in batches
-    with ThreadPoolExecutor(max_workers=batch_size) as executor:
-        # Submit all jobs with metadata
-        futures = {}
-        for sw_ip in all_ips:
-            is_modular_spine = sw_ip in mod_spine_ips
-            future = executor.submit(
-                process_switch,
-                sw_ip,
-                switch_info,
-                progress_bar,
-                switch_info.username,
-                switch_info.password,
-                None if is_modular_spine else md5_32bit,
-                md5_64bit,  # Always pass md5_64bit regardless of switch type
-                apic_addr,
-                is_modular_spine
-            )
-            futures[future] = {
-                "ip": sw_ip,
-                "name": switch_info.get_switch_name(sw_ip),
-                "is_modular_spine": is_modular_spine
-            }
-        
-        # Process results as they complete
-        for future in as_completed(futures, timeout=None):
-            switch_info = futures[future]
-            sw_ip = switch_info["ip"]
-            sw_name = switch_info["name"]
-            
-            try:
-                # Add per-switch timeout
-                switch_data = future.result(timeout=120)
-                
-                # Store and log results
-                if switch_data:
-                    # Use result_logger instead of logger
-                    result_logger.log_switch_result(switch_data)
-                    results[sw_ip] = switch_data
-                
-            except concurrent.futures.TimeoutError:
-                # Use result_logger instead of logger
-                result_logger.log_switch_result({
-                    "switch": sw_name,
-                    "ip": sw_ip,
-                    "status": "timeout",
-                    "result": "ERROR", 
-                    "message": "Operation timed out after 120 seconds"
-                })
-            except Exception as e:
-                # Use result_logger instead of logger
-                result_logger.log_switch_result({
-                    "switch": sw_name,
-                    "ip": sw_ip,
-                    "status": "error",
-                    "result": "ERROR",
-                    "message": f"Exception: {str(e)}"
-                })
-            
-            # Update progress
-            completed += 1
-            progress_bar.update(f"Processed {completed} of {total_count} switches", 0)
-    
-    return results
-
-###########################################
-# Results Processing and Output
+# Result Logging and Reporting
 ###########################################
 
 class ResultLogger:
@@ -2667,13 +2273,7 @@ class ResultLogger:
         self._init_file()
         
         # ANSI color codes for result types
-        self.colors = {
-            "PASS": "\033[1;32m",     # Green
-            "FAIL": "\033[1;31m",     # Red
-            "WARNING": "\033[1;33m",  # Yellow
-            "ERROR": "\033[1;31m",    # Red (same as FAIL)
-            "RESET": "\033[0m"        # Reset to default
-        }
+        self.colors = RESULT_COLORS
         
     def _init_file(self):
         """Initialize the output file with header information"""
@@ -2690,71 +2290,31 @@ class ResultLogger:
             with open(self.filename, 'a') as f:
                 f.write(f"{message}\n")
 
+    def _format_memory_display(self, memory_kb, memory_gb):
+        """Format memory display using GB if available, otherwise KB"""
+        return MemoryCheck.format_memory_display(memory_kb, memory_gb)
+
     def _format_switch_data(self, file, switch_data):
         """Format switch data for output file"""
-        sw_name = switch_data.get("switch", "Unknown")
-        sw_ip = switch_data.get("ip", "Unknown")
-        memory_gb = switch_data.get("memory_gb")
-        memory_kb = switch_data.get("memory_kb")
-        image_path = switch_data.get("image_path", "Unknown")
-        md5sum = switch_data.get("md5sum", "Unknown")
-        result = switch_data.get("result", "ERROR")
-        repodata_result = switch_data.get("repodata_check", "ERROR")
-        message = switch_data.get("message", "No validation message")
-        
-        # Format memory display - use GB if available, otherwise fall back to KB
-        if memory_gb is not None:
-            memory_display = f"{memory_gb} GB"
-        elif memory_kb not in ("Unknown", None):
-            try:
-                kb_value = int(memory_kb)
-                if kb_value < 20000: memory_display = "16 GB"
-                elif kb_value < 30000: memory_display = "24 GB"
-                elif kb_value < 40000: memory_display = "32 GB"
-                elif kb_value < 70000 and kb_value > 60000: memory_display = "64 GB"
-                else: memory_display = f"{round(kb_value / 1024)} GB"
-            except (ValueError, TypeError):
-                memory_display = f"{memory_kb} KB"
-        else:
-            memory_display = "Unknown"
-        
-        # Add boot mode information if available
-        boot_mode = switch_data.get("boot_mode", "normal")
+        # Use the common formatter for the basic data
+        formatted_data = format_switch_data_for_output(switch_data)
         
         # Write basic switch information
-        file.write(f"\nSwitch: {sw_name} ({sw_ip})\n")
-        file.write(f"Memory: {memory_display}\n")
-        if boot_mode == "recovery":
+        file.write(f"\nSwitch: {formatted_data['switch']} ({formatted_data['ip']})\n")
+        file.write(f"Memory: {formatted_data['memory_display']}\n")
+        if formatted_data['boot_mode'] == "recovery":
             file.write(f"Boot Mode: \033[1;33mRecovery\033[0m\n")
-        file.write(f"Image: {image_path}\n")
-        file.write(f"MD5sum: {md5sum}\n")
+        file.write(f"Image: {formatted_data['image_path']}\n")
+        file.write(f"MD5sum: {formatted_data['md5sum']}\n")
         
         # Results section
         file.write("\nResults:\n")
+        file.write(f"MD5sum Check   : {formatted_data['md5_result_colored']} {formatted_data['md5_message']}\n")
+        file.write(f"Repodata Check : {formatted_data['repodata_result_colored']} {formatted_data['repodata_description']}\n")
         
-        # Format the MD5 check result
-        md5_status_color = self.colors[result] if result in self.colors else ""
-        md5_message = message.split(" | Repodata Check:")[0] if " | Repodata Check:" in message else message
-        file.write(f"MD5sum Check   : {md5_status_color}{result}{self.colors['RESET']} {md5_message}\n")
-        
-        # Format the Repodata Check result
-        repodata_color = ""
-        if repodata_result == "PASS":
-            repodata_color = self.colors["PASS"]
-            repodata_desc = "(.repodata file not present)"
-        elif repodata_result == "FAIL":
-            repodata_color = self.colors["FAIL"]
-            repodata_desc = "(.repodata directory exists)"
-        else:
-            repodata_color = self.colors["ERROR"]
-            repodata_desc = "(check failed)"
-        
-        file.write(f"Repodata Check : {repodata_color}{repodata_result}{self.colors['RESET']} {repodata_desc}\n")
-        
-        # Add recommendations if needed
+        # Still call the class-specific recommendation and diagnostic formatters
+        # These have special formatting for the file output that's not handled by the formatter
         self._add_recommendations(file, switch_data)
-        
-        # Add diagnostics if needed
         self._add_diagnostics(file, switch_data)
 
     def _add_recommendations(self, file, switch_data):
@@ -2781,66 +2341,24 @@ class ResultLogger:
         if permission_denied:
             file.write("Re-run the script from the owner account or root to rectify the permissions issue.\n")
             
-            # Look for owner information using multiple methods
+            # Look for owner information using centralized extraction
             owner = None
             
-            # Check various places for file owner info
-            if "file_owner" in switch_data:
-                owner = switch_data["file_owner"]
-            elif diagnostics and "file_owner" in diagnostics:
-                owner = diagnostics["file_owner"]
-            elif "raw_ls_output" in switch_data:
-                raw_ls = switch_data["raw_ls_output"]
-                for line in raw_ls.splitlines():
-                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
-                        continue
-                    
-                    if ".bin" in line:
-                        # Try regex first
-                        owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+\S+', line)
-                        if owner_match:
-                            owner = owner_match.group(1)
-                            break
-                        
-                        # Fallback: simple split by whitespace
-                        parts = line.split()
-                        if len(parts) >= 4:
-                            try:
-                                owner = parts[2]
-                                break
-                            except IndexError:
-                                pass
-            elif diagnostics and "raw_ls_output" in diagnostics:
-                raw_ls = diagnostics["raw_ls_output"]
-                for line in raw_ls.splitlines():
-                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
-                        continue
-                    
-                    if ".bin" in line:
-                        # Clean up the line if there's a hostname at the end
-                        switch_name = switch_data.get("switch", "")
-                        if switch_name in line:
-                            line = line[:line.find(switch_name)].strip()
-                        
-                        # Try regex
-                        owner_match = re.search(r'(?:-[rwx-]+)?\s+\d+\s+(\S+)\s+\S+', line)
-                        if owner_match:
-                            owner = owner_match.group(1)
-                            break
-                        
-                        # Fallback to simple split
-                        parts = line.split()
-                        if len(parts) >= 4:
-                            try:
-                                owner = parts[2]
-                                break
-                            except IndexError:
-                                pass
+            # Try extracting owner info from various sources
+            if "raw_ls_output" in switch_data:
+                file_info = get_kickstart_ownership(
+                    switch_data["raw_ls_output"],
+                    switch_data.get("switch", "")
+                )
+                if file_info["file_owner"]:
+                    owner = file_info["file_owner"]
+            
+            # Other owner extraction logic...
             
             # If we found the owner, display it
             if owner:
                 file.write(f"The owner of the file is: {owner}\n")
-                
+        
         # Add recommendations for other failure types
         if result == "FAIL" and not permission_denied:
             file.write("Contact Cisco TAC for assistance in setting boot variable to use correct switch image.\n\n")
@@ -2867,155 +2385,68 @@ class ResultLogger:
         
         # Check for permission denied in the output
         if cmd_output and "permission denied" in cmd_output.lower():
-            # Extract the permission denied line
-            permission_line = None
-            for line in cmd_output.splitlines():
-                if not line:
-                    continue
-                    
-                if "permission denied" in line.lower():
-                    # Remove hostname if it appears at the end
-                    switch_name = switch_data.get("switch", "")
-                    if switch_name and switch_name in line:
-                        permission_line = line[:line.find(switch_name)].strip()
-                    else:
-                        permission_line = line
-                    break
-                    
+            # Use CommandOutputProcessor to extract the permission denied line
+            permission_line = CommandOutputProcessor.extract_single_line(cmd_output, "permission denied", 
+                                                                    switch_data.get("switch", ""))
             if permission_line:
                 file.write(f"{permission_line}\n")
             
-            # Now find and display the file info line
+            # Now find and display the file info using centralized extraction
             file_info_displayed = False
             
             # Try getting file info from various locations
             if not file_info_displayed and "raw_ls_output" in switch_data:
-                raw_ls = switch_data["raw_ls_output"]
-                for line in raw_ls.splitlines():
-                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
-                        continue
-                    
-                    if ".bin" in line:
-                        # Remove hostname if it appears at the end
-                        switch_name = switch_data.get("switch", "")
-                        if switch_name and switch_name in line:
-                            line = line[:line.find(switch_name)].strip()
-                        
-                        file.write(f"{line}\n")
-                        file_info_displayed = True
-                        break
+                file_info = get_kickstart_ownership(
+                    switch_data["raw_ls_output"], 
+                    switch_data.get("switch", ""),
+                    None  # Don't update any dictionaries, just get the info
+                )
+                if file_info["file_line"]:
+                    file.write(f"{file_info['file_line']}\n")
+                    file_info_displayed = True
+                elif file_info["file_details"]:
+                    file.write(f"{file_info['file_details']}\n")
+                    file_info_displayed = True
             
             # Try diagnostics raw_ls_output if needed
             if not file_info_displayed and diagnostics and "raw_ls_output" in diagnostics:
-                raw_ls = diagnostics["raw_ls_output"]
-                for line in raw_ls.splitlines():
-                    if not line or line.startswith("ls ") or line == switch_data.get("switch", ""):
-                        continue
-                    
-                    if ".bin" in line:
-                        # Remove hostname if it appears at the end
-                        switch_name = switch_data.get("switch", "")
-                        if switch_name and switch_name in line:
-                            line = line[:line.find(switch_name)].strip()
-                            
-                        file.write(f"{line}\n")
-                        file_info_displayed = True
-                        break
-            
-            # Try file_line if needed
-            if not file_info_displayed and "file_line" in switch_data:
-                line = switch_data["file_line"]
-                # Skip command lines
-                if not line.startswith("ls "):
-                    # Clean the line
-                    switch_name = switch_data.get("switch", "")
-                    if switch_name and switch_name in line:
-                        line = line[:line.find(switch_name)].strip()
-                        
-                    file.write(f"{line}\n")
+                file_info = get_kickstart_ownership(
+                    diagnostics["raw_ls_output"], 
+                    switch_data.get("switch", ""),
+                    None  # Don't update any dictionaries, just get the info
+                )
+                if file_info["file_line"]:
+                    file.write(f"{file_info['file_line']}\n")
                     file_info_displayed = True
-            
-            # Try file_line in diagnostics if needed
-            elif not file_info_displayed and diagnostics and "file_line" in diagnostics:
-                line = diagnostics["file_line"]
-                # Skip command lines
-                if not line.startswith("ls "):
-                    # Clean the line
-                    switch_name = switch_data.get("switch", "")
-                    if switch_name and switch_name in line:
-                        line = line[:line.find(switch_name)].strip()
-                        
-                    file.write(f"{line}\n")
+                elif file_info["file_details"]:
+                    file.write(f"{file_info['file_details']}\n")
                     file_info_displayed = True
             
             # Try component parts if needed
-            if not file_info_displayed and "file_permissions" in switch_data and "file_owner" in switch_data:
+            if not file_info_displayed and "file_details" in switch_data:
+                file.write(f"{switch_data['file_details']}\n")
+                file_info_displayed = True
+            elif not file_info_displayed and diagnostics and "file_details" in diagnostics:
+                file.write(f"{diagnostics['file_details']}\n")
+                file_info_displayed = True
+            elif not file_info_displayed and "file_permissions" in switch_data and "file_owner" in switch_data:
                 file.write(f"{switch_data['file_permissions']} {switch_data['file_owner']} {switch_data['file_group']}\n")
                 file_info_displayed = True
-            
-            # Try component parts in diagnostics if needed
             elif not file_info_displayed and diagnostics and "file_permissions" in diagnostics:
                 file.write(f"{diagnostics['file_permissions']} {diagnostics['file_owner']} {diagnostics['file_group']}\n")
                 file_info_displayed = True
-            
-            # Try pre-formatted file_details if needed
-            if not file_info_displayed and "file_details" in switch_data:
-                file.write(f"{switch_data['file_details']}\n")
-            elif not file_info_displayed and diagnostics and "file_details" in diagnostics:
-                file.write(f"{diagnostics['file_details']}\n")
         
         # If no permission denied or no file info found, show the command output directly
         elif cmd_output:
-            # Clean up the command output
-            lines = []
-            for line in cmd_output.splitlines():
-                if not line or line == switch_data.get("switch", ""):
-                    continue
-                    
-                # Remove hostname if it appears at the end of the line
-                switch_name = switch_data.get("switch", "")
-                if switch_name and switch_name in line:
-                    line = line[:line.find(switch_name)].strip()
-                    
-                lines.append(line)
-            
-            if lines:
-                file.write(f"{lines[0]}\n")
+            # Use CommandOutputProcessor to clean and format the output
+            cleaned_output = CommandOutputProcessor.clean_output(cmd_output, switch_data.get("switch", ""))
+            formatted_output = CommandOutputProcessor.format_for_display(cleaned_output)
+            file.write(f"{formatted_output}\n")
 
     def log_switch_result(self, switch_data):
-        """Log data for a single switch with specific error details, relevant diagnostics, and recommendations"""
-        sw_name = switch_data.get("switch", "Unknown")
-        sw_ip = switch_data.get("ip", "Unknown")
-        memory_kb = switch_data.get("memory_kb", "Unknown")
-        memory_gb = switch_data.get("memory_gb")
-        
-        # Format memory display - use GB if available, otherwise fall back to KB
-        if memory_gb is not None:
-            memory_display = f"{memory_gb} GB"
-        elif memory_kb not in ("Unknown", None):
-            # Convert KB to standardized GB value
-            try:
-                kb_value = int(memory_kb)
-                if kb_value < 20000:
-                    memory_display = "16 GB"
-                elif kb_value < 30000:
-                    memory_display = "24 GB"
-                elif kb_value < 40000:
-                    memory_display = "32 GB"
-                elif kb_value < 70000 and kb_value > 60000:
-                    memory_display = "64 GB"
-                else:
-                    memory_display = f"{round(kb_value / 1024)} GB"
-            except (ValueError, TypeError):
-                memory_display = f"{memory_kb} KB"
-        else:
-            memory_display = "Unknown"
-        
-        image_path = switch_data.get("image_path", "Unknown")
-        md5sum = switch_data.get("md5sum", "Unknown")
-        result = switch_data.get("result", "ERROR")
-        message = switch_data.get("message", "No validation message")
-        all_diagnostics = switch_data.get("diagnostics", {})
+        """Log data for a single switch with specific error details, diagnostics, and recommendations"""
+        # Use the common formatter for basic data, but not recommendations
+        formatted_data = format_switch_data_for_output(switch_data, include_diagnostics=True)
         
         with self.lock:
             # Initialize the first_switch flag if it doesn't exist
@@ -3028,144 +2459,41 @@ class ResultLogger:
                     f.write("----------------------------------------\n")
                     self.first_switch_logged = True
                 
-                # Basic switch information with GB memory value
-                f.write(f"\nSwitch: {sw_name} ({sw_ip})\n")
-                f.write(f"Memory: {memory_display}\n")
-                f.write(f"Image: {image_path}\n")
-                f.write(f"MD5sum: {md5sum}\n")
+                # Basic switch information
+                f.write(f"\nSwitch: {formatted_data['switch']} ({formatted_data['ip']})\n")
+                f.write(f"Memory: {formatted_data['memory_display']}\n")
+                if formatted_data['boot_mode'] == "recovery":
+                    f.write(f"Boot Mode: \033[1;33mRecovery\033[0m\n")
+                f.write(f"Image: {formatted_data['image_path']}\n")
+                f.write(f"MD5sum: {formatted_data['md5sum']}\n")
                 
-                # Results section with consolidated status
+                # Results section
                 f.write("\nResults:\n")
+                f.write(f"MD5sum Check   : {formatted_data['md5_result_colored']} {formatted_data['md5_message']}\n")
+                f.write(f"Repodata Check : {formatted_data['repodata_result_colored']} {formatted_data['repodata_description']}\n")
                 
-                # Parse the consolidated message to separate MD5 result and Repodata result
-                md5_message = message.split(" | Repodata Check:")[0] if " | Repodata Check:" in message else message
+                # Instead of using recommendations from formatted_data, use the class method
+                # This ensures consistent formatting of recommendations
+                self._add_recommendations(f, switch_data)
                 
-                # Format the MD5sum Check result with status and message
-                md5_status_color = self.colors[result] if result in self.colors else ""
-                f.write(f"MD5sum Check   : {md5_status_color}{result}{self.colors['RESET']} {md5_message}\n")
-                
-                # Track MD5 and Repodata check status for recommendation logic
-                md5_check_failed = result == "FAIL"
-                permission_denied = False
-                repodata_check_failed = False
-
-                # Format the Repodata Check result
-                if "repodata_check" in switch_data:
-                    repodata_result = switch_data.get("repodata_check")
-                    repodata_color = ""
-                    if repodata_result == "PASS":
-                        repodata_color = self.colors["PASS"]
-                        repodata_desc = "(.repodata file not present)"
-                    elif repodata_result == "FAIL":
-                        repodata_color = self.colors["FAIL"]
-                        repodata_desc = "(.repodata directory exists)"
-                        repodata_check_failed = True
-                    else:
-                        repodata_color = self.colors["ERROR"]
-                        repodata_desc = "(check failed)"
-                    
-                    f.write(f"Repodata Check : {repodata_color}{repodata_result}{self.colors['RESET']} {repodata_desc}\n")
-                
-                # Check for permission denied error
-                cmd_output = ""
-                if "md5_command_output" in switch_data:
-                    cmd_output = switch_data["md5_command_output"]
-                elif all_diagnostics and "md5_command_output" in all_diagnostics:
-                    cmd_output = all_diagnostics["md5_command_output"]
-                
-                if cmd_output and "permission denied" in cmd_output.lower():
-                    permission_denied = True
-                
-                # Add recommendations based on failure combinations and conditions
-                recommendations_needed = md5_check_failed or repodata_check_failed or permission_denied
-                
-                if recommendations_needed:
-                    f.write("\nRecommendations:\n")
-                    
-                    # Different recommendations based on conditions
-                    if permission_denied:
-                        f.write("Re-run the script from the owner account or root to rectify the permissions issue.\n")
-                                            
-                        owner = None
-            
-                        # Check various places where owner information might be stored
-                        if all_diagnostics and "file_owner" in all_diagnostics:
-                            owner = all_diagnostics["file_owner"]
-                        elif "file_owner" in switch_data:
-                            owner = switch_data["file_owner"]
-                        elif "raw_ls_output" in switch_data:
-                            # Try to extract owner from the raw_ls_output
-                            ls_output = switch_data["raw_ls_output"]
-                            for line in ls_output.splitlines():
-                                if line.strip() and ".bin" in line:
-                                    # Try to extract owner from pattern like "-rw------- 1 admin admin 2.4G"
-                                    match = re.search(r'\S+\s+\d+\s+(\S+)\s+\S+', line)
-                                    if match:
-                                        owner = match.group(1)
-                                        break
-                        
-                        if owner:
-                            f.write(f"The owner of the file is: {owner}\n")
-
-                    if md5_check_failed and repodata_check_failed:
-                        # Both checks failed
-                        if not permission_denied:  # Only add if not already shown for permission denied
-                            f.write("1. Contact Cisco TAC for assitance in setting boot variable to use correct switch image.\n")
-                            f.write("2. Contact Cisco TAC to remove .repodata file via root user.\n\n")
-                            f.write("Defect Reference:\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj44966\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwo34637\n")
-                    elif md5_check_failed and not permission_denied:
-                        # Only MD5 check failed and not due to permissions
-                        f.write("Contact Cisco TAC for assitance in setting boot variable to use correct switch image.\n\n")
-                        f.write("Defect Reference:\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj44966\n")
-                    elif repodata_check_failed:
-                        # Only Repodata check failed
-                        if permission_denied:  # Add a separator if we already showed permission message
-                            f.write("\n")
-                        f.write("Contact Cisco TAC to remove .repodata file via root user.\n\n")
-                        f.write("Defect Reference:\nhttps://bst.cloudapps.cisco.com/bugsearch/bug/CSCwo34637\n")
-                
-                # Simplified diagnostics display logic - only for errors or missing MD5
-                if result == "ERROR" or md5sum is None:
+                # Add diagnostics for errors or missing MD5
+                if formatted_data['result'] == "ERROR" or formatted_data['md5sum'] is None:
                     f.write("\nDiagnostics:\n")
                     
-                    # Check for permission denied in the output
-                    if cmd_output and "permission denied" in cmd_output.lower():
-                        # First extract just the permission denied line
-                        for line in cmd_output.splitlines():
-                            if "permission denied" in line.lower():
-                                f.write(f"{line.strip()}\n")
-                                break
+                    if 'diagnostics' in formatted_data:
+                        diag = formatted_data['diagnostics']
                         
-                        # Check for file permissions information in multiple locations
-                        if "raw_ls_output" in switch_data:
-                            ls_output = switch_data["raw_ls_output"]
-                            for line in ls_output.splitlines():
-                                if line.strip() and ".bin" in line and not line.startswith("ls "):
-                                    f.write(f"{line.strip()}\n")
-                                    break
-                        elif all_diagnostics and "raw_ls_output" in all_diagnostics:
-                            ls_output = all_diagnostics["raw_ls_output"]
-                            for line in ls_output.splitlines():
-                                if line.strip() and ".bin" in line and not line.startswith("ls "):
-                                    f.write(f"{line.strip()}\n")
-                                    break
-                        elif "file_line" in switch_data:
-                            f.write(f"{switch_data['file_line']}\n")
-                        elif all_diagnostics and "file_line" in all_diagnostics:
-                            f.write(f"{all_diagnostics['file_line']}\n")
-                        elif "file_details" in switch_data:
-                            f.write(f"{switch_data['file_details']}\n")
-                        elif all_diagnostics and "file_details" in all_diagnostics:
-                            f.write(f"{all_diagnostics['file_details']}\n")
-                        elif "file_permissions" in switch_data and "file_owner" in switch_data:
-                            f.write(f"{switch_data['file_permissions']} {switch_data['file_owner']} {switch_data['file_group']}\n")
-                        elif all_diagnostics and "file_permissions" in all_diagnostics and "file_owner" in all_diagnostics:
-                            f.write(f"{all_diagnostics['file_permissions']} {all_diagnostics['file_owner']} {all_diagnostics['file_group']}\n")
-                    
-                    # If no permission denied or no file info found, show the command output directly
-                    elif cmd_output:
-                        f.write(f"{cmd_output.strip()}\n")
-
+                        # Handle permission denied specially
+                        if formatted_data['permission_denied']:
+                            if 'permission_line' in diag:
+                                f.write(f"{diag['permission_line']}\n")
+                            if 'file_info' in diag:
+                                f.write(f"{diag['file_info']}\n")
+                        
+                        # Show command output for other cases
+                        elif 'command_output' in diag:
+                            f.write(f"{diag['command_output']}\n")
+                
                 # Keep the separator line at the end of each switch entry
                 f.write("----------------------------------------\n")
     
@@ -3272,168 +2600,6 @@ class ResultLogger:
                     self.log_message(f"  {f}: {stats.st_size} bytes")
             else:
                 self.log_message(f"No files found matching {pattern}")
-
-def export_results_to_json(results, summary, filename, apic_version):
-    """
-    Export validation results to a JSON file for automation scenarios
-    
-    Args:
-        results: Dictionary of switch results
-        summary: Summary statistics dictionary 
-        filename: Output JSON filename
-        apic_version: APIC version string
-    """
-    try:
-        # Create a structured output format
-        export_data = {
-            "script_version": "1.0.0",
-            "timestamp": datetime.now().isoformat(),
-            "apic_version": apic_version,
-            "summary": {
-                "md5_check": {
-                    "pass": summary.get("pass", 0),
-                    "fail": summary.get("fail", 0),
-                    "warning": summary.get("warning", 0),
-                    "error": summary.get("error", 0)
-                },
-                "repodata_check": {
-                    "pass": summary.get("repodata_pass", 0),
-                    "fail": summary.get("repodata_fail", 0),
-                    "error": summary.get("repodata_error", 0)
-                },
-                "performance": {
-                    "total_time_seconds": summary.get("total_time", 0),
-                    "average_time_per_switch_seconds": summary.get("average_time", 0)
-                }
-            },
-            "switches": []
-        }
-        
-        # Process each switch result
-        for sw_ip, switch_data in results.items():
-            # Extract the relevant data without color codes
-            switch_result = {
-                "name": switch_data.get("switch", "Unknown"),
-                "ip": switch_data.get("ip", "Unknown"),
-                "memory_kb": switch_data.get("memory_kb", "Unknown"),
-                "image_path": switch_data.get("image_path", "Unknown"),
-                "md5sum": switch_data.get("md5sum", "Unknown"),
-                "md5_check": {
-                    "result": switch_data.get("result", "ERROR"),
-                    "message": switch_data.get("message", "").split(" | Repodata Check:")[0]
-                },
-                "repodata_check": {
-                    "result": switch_data.get("repodata_check", "ERROR"),
-                    "message": (
-                        "Repodata file not present" if switch_data.get("repodata_check") == "PASS" 
-                        else "Repodata directory exists" if switch_data.get("repodata_check") == "FAIL"
-                        else "Check failed"
-                    )
-                },
-                "collection_time": switch_data.get("collection_time", "Unknown"),
-                "status": switch_data.get("status", "error")
-            }
-            
-            # Check for permission denied
-            permission_denied = False
-            cmd_output = ""
-            if "md5_command_output" in switch_data:
-                cmd_output = switch_data["md5_command_output"]
-            elif switch_data.get("diagnostics") and "md5_command_output" in switch_data["diagnostics"]:
-                cmd_output = switch_data["diagnostics"]["md5_command_output"]
-            
-            if cmd_output and "permission denied" in cmd_output.lower():
-                permission_denied = True
-            
-            # Add recommendations field based on failure types and permission errors
-            recommendations = []
-            
-            # Add permission denied recommendation first if applicable
-            if permission_denied:
-                recommendations.append("Re-run the script from the admin account to rectify the permissions issue.")
-                recommendations.append("Note: Rectification of permissions will only work from the admin account. It will not work even if a non-admin user belongs to the admin group.")
-            
-            # Add other recommendations
-            if switch_data.get("result") == "FAIL":
-                recommendations.append("Contact Cisco TAC for assistance in setting boot variable to use correct switch image")
-                recommendations.append("Defect Reference: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj44966")
-            
-            if switch_data.get("repodata_check") == "FAIL":
-                recommendations.append("Contact Cisco TAC to remove .repodata file via root user")
-                recommendations.append("Defect Reference: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwo34637")
-            
-            if recommendations:
-                switch_result["recommendations"] = recommendations
-            
-            # Build comprehensive diagnostics
-            diagnostics = {}
-            
-            # First check for MD5 retrieval errors - this is highest priority
-            if switch_data.get("md5sum") is None and switch_data.get("image_path") is not None:
-                diagnostics["error_type"] = "md5_retrieval"
-                
-                # Check command output for specific error messages
-                if cmd_output:
-                    cmd_output_lower = cmd_output.lower() if cmd_output else ""
-                    
-                    if "permission denied" in cmd_output_lower:
-                        diagnostics["md5_error"] = "Permission denied when accessing image file"
-                    elif "no such file" in cmd_output_lower:
-                        diagnostics["md5_error"] = "Image file not found"
-                    else:
-                        diagnostics["md5_error"] = "Unknown error retrieving MD5"
-            
-            # Next, incorporate any existing diagnostic information
-            if "diagnostics" in switch_data and switch_data["diagnostics"]:
-                for key, value in switch_data["diagnostics"].items():
-                    if isinstance(value, str):
-                        # Remove ANSI color codes
-                        value = re.sub(r'\033\[[0-9;]*m', '', value)
-                    # Don't overwrite existing error_type if we've already set it
-                    if key != "error_type" or "error_type" not in diagnostics:
-                        diagnostics[key] = value
-            
-            # Clean up md5 command output if available
-            if cmd_output:
-                # Remove ANSI color codes
-                cleaned_output = re.sub(r'\033\[[0-9;]*m', '', cmd_output)
-                
-                # For permission denied errors, extract just the error message
-                if "permission denied" in cleaned_output.lower():
-                    # Look for the specific pattern "md5sum: /path/to/file: Permission denied"
-                    permission_match = re.search(r'(md5sum:\s+\/\S+:\s+Permission denied)', cleaned_output, re.IGNORECASE)
-                    if permission_match:
-                        diagnostics["command_output"] = permission_match.group(1).strip()
-                    else:
-                        # Fallback: just clean up line breaks and hostname
-                        lines = [line.strip() for line in cleaned_output.splitlines() 
-                                if "permission denied" in line.lower()]
-                        if lines:
-                            diagnostics["command_output"] = lines[0]
-                        else:
-                            diagnostics["command_output"] = cleaned_output.strip()
-                else:
-                    # For other outputs, clean up unnecessary parts
-                    lines = [line.strip() for line in cleaned_output.splitlines() 
-                            if line.strip() and not line.strip().startswith(switch_result["name"])]
-                    diagnostics["command_output"] = lines[0] if lines else cleaned_output.strip()
-            
-            # Ensure we have an error_type for md5 errors
-            if switch_data.get("md5sum") is None and "error_type" not in diagnostics:
-                diagnostics["error_type"] = "md5_retrieval"
-            
-            # Add the diagnostics to the result
-            switch_result["diagnostics"] = diagnostics
-            
-            export_data["switches"].append(switch_result)
-            
-        # Write the JSON file without pretty printing
-        with open(filename, 'w') as json_file:
-            json.dump(export_data, json_file)
-            
-    except Exception as e:
-        logger.log_message(f"Error exporting to JSON: {str(e)}")
-        logging.error(f"Error exporting to JSON: {str(e)}")
 
 ###########################################
 # UI and Progress Tracking
@@ -3739,6 +2905,234 @@ class ProgressBar:
         if hasattr(self, 'original_sigterm'):
             signal.signal(signal.SIGTERM, self.original_sigterm)
 
+###########################################
+# Logging & Setup Helper Utilities
+###########################################
+
+def configure_logging(log_file='logs/smu-check-debug.log', level=logging.DEBUG):
+    """Configure logging with rotation and no console output."""
+    # Ensure log directory exists
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # Create file handler with rotation
+    file_handler = RotatingFileHandler(
+        filename=log_file, maxBytes=10*1024*1024, backupCount=5)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    file_handler.setLevel(level)
+    file_handler.id = "main_file_handler"  # Unique ID to prevent duplication
+    
+    # Configure root logger with NO console output
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.handlers = []  # Clear all handlers
+    root_logger.addHandler(file_handler)
+    
+    # Create console handler with CRITICAL level to suppress normal logs
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    console_handler.setLevel(logging.CRITICAL)
+    root_logger.addHandler(console_handler)
+    
+    # Track handler attachment for use with other loggers
+    global _handler_attached_loggers
+    _handler_attached_loggers = set()
+    
+    return file_handler  # Return for use with other loggers
+
+def get_logger(name=None):
+    """Get a properly configured logger"""
+    logger = logging.getLogger(name)
+    # Ensure the logger doesn't propagate duplicates
+    logger.propagate = False
+    return logger
+
+# Initialize global variable for handler tracking
+_handler_attached_loggers = set()
+
+# Configure main logging setup
+file_handler = configure_logging()
+
+# Set a module-level logger and ensure it has proper setup
+logger = get_logger(__name__)
+logger.propagate = False  # Prevent propagation to root logger
+
+logger.info("Script started")
+
+def check_system_resources():
+    """
+    Check system resources using /proc filesystem.
+    Returns a dictionary with resource information.
+    """
+    resources = {}
+    
+    # Check for CPU count via /proc/cpuinfo
+    try:
+        cpu_count = 0
+        with open('/proc/cpuinfo', 'r') as f:
+            for line in f:
+                if line.startswith('processor'):
+                    cpu_count += 1
+        resources["cpu_count"] = cpu_count
+        # Logging instead of printing
+        logger.info(f"Detected {cpu_count} CPU cores")
+    except Exception as e:
+        resources["cpu_count"] = 2  # Conservative default
+        logger.info(f"Couldn't read CPU info: {str(e)}. Assuming 2 cores.")
+    
+    # Check memory via /proc/meminfo
+    try:
+        with open('/proc/meminfo', 'r') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    # Memory is in kB in /proc/meminfo
+                    mem_kb = int(line.split()[1])
+                    mem_gb = round(mem_kb / (1024 * 1024), 2)
+                    resources["memory_gb"] = mem_gb
+                    logger.info(f"Detected {mem_gb} GB memory")
+                    break
+    except Exception as e:
+        resources["memory_gb"] = 4  # Conservative default
+        logger.info(f"Couldn't read memory info: {str(e)}. Assuming 4GB.")
+    
+    # Check load average
+    try:
+        with open('/proc/loadavg', 'r') as f:
+            load = f.read().strip().split()
+            resources["load_1min"] = float(load[0])
+            resources["load_5min"] = float(load[1])
+            resources["load_15min"] = float(load[2])
+            logger.info(f"Current load averages: {load[0]} (1min), {load[1]} (5min), {load[2]} (15min)")
+    except Exception as e:
+        resources["load_1min"] = 1.0  # Default value
+        logger.info(f"Couldn't read load average: {str(e)}")
+    
+    # Check current SSH connections
+    try:
+        conn_count = int(subprocess.check_output(
+            "netstat -ant | grep ESTABLISHED | grep ':22' | wc -l", 
+            shell=True, text=True
+        ).strip())
+        resources["current_connections"] = conn_count
+        logger.info(f"Currently active SSH connections: {conn_count}")
+    except Exception as e:
+        resources["current_connections"] = 5  # Assume moderate usage
+        logger.info(f"Couldn't check SSH connections: {str(e)}")
+    
+    # Calculate recommended thread count based on resources
+    if resources.get("cpu_count", 0) > 0:
+        # Base thread count on CPU cores
+        thread_base = max(2, resources["cpu_count"] - 1)
+        
+        # Adjust for memory (approximately 150MB per thread)
+        if "memory_gb" in resources:
+            memory_capacity = int(resources["memory_gb"] * 6)  # ~150MB per thread
+            thread_base = min(thread_base, memory_capacity)
+            
+        # Adjust for current load
+        if "load_5min" in resources:
+            load_factor = resources["load_5min"] / resources["cpu_count"]
+            if load_factor > 0.7:  # High load
+                thread_base = max(2, thread_base - 2)
+            elif load_factor < 0.3:  # Low load
+                thread_base = min(thread_base + 2, resources["cpu_count"] * 2)
+                
+        # Adjust for existing SSH connections
+        if "current_connections" in resources:
+            conn_adjust = resources["current_connections"] // 5  # Every 5 connections reduces by 1
+            thread_base = max(2, thread_base - conn_adjust)
+            
+        # Cap at reasonable maximum
+        recommended = min(thread_base, 20)
+    else:
+        recommended = 5  # Default fallback
+        
+    resources["recommended_threads"] = recommended
+    logger.info(f"Recommended thread count: {recommended}")
+    
+    return resources
+
+###########################################
+# Connection Helper Utilities
+###########################################
+
+def handle_connection_error(device_name, device_ip, error, error_type=None, buffer=None, diagnostics=None, logger=None):
+    """
+    Unified error handler for connection issues across the script
+    
+    Args:
+        device_name: Name of the device (switch/APIC)
+        device_ip: IP address of the device
+        error: The exception or error string
+        error_type: Type of error (timeout, auth_failure, connection, etc.)
+        buffer: Any output buffer captured before the error
+        diagnostics: Dictionary to update with error information
+        logger: Logger instance to use (will use root logger if None)
+    
+    Returns:
+        dict: Error information dictionary with consistent structure
+    """
+    if logger is None:
+        logger = get_logger(__name__)
+    
+    error_str = str(error)
+    
+    # Initialize error info structure
+    error_info = {
+        "device": device_name,
+        "ip": device_ip,
+        "status": "error",
+        "error_type": error_type or "unknown",
+        "error_message": error_str,
+        "buffer": buffer,
+        "retry_recommended": False
+    }
+    
+    # Process error types consistently
+    if error_type == "auth_failure" or "AUTH_FAILURE" in error_str:
+        error_info["error_type"] = "auth_failure"
+        error_info["display_message"] = "Authentication failed - check credentials"
+        error_info["retry_recommended"] = False
+        logger.error(f"Authentication failure on {device_name} ({device_ip}): {error_str}")
+        
+    elif error_type == "timeout" or "timed out" in error_str.lower():
+        error_info["error_type"] = "timeout"
+        error_info["display_message"] = "Connection timed out - check network connectivity"
+        error_info["retry_recommended"] = True
+        logger.error(f"Timeout connecting to {device_name} ({device_ip}): {error_str}")
+        
+    elif error_type == "connection" or "connection" in error_str.lower():
+        error_info["error_type"] = "connection"
+        error_info["display_message"] = "Connection error - check device availability"
+        error_info["retry_recommended"] = True
+        logger.error(f"Connection error to {device_name} ({device_ip}): {error_str}")
+    
+    elif error_type == "eof" or "eof" in error_str.lower():
+        error_info["error_type"] = "eof"
+        error_info["display_message"] = "Connection closed unexpectedly"
+        error_info["retry_recommended"] = True
+        logger.error(f"Connection closed to {device_name} ({device_ip}): {error_str}")
+        
+    elif error_type == "permission":
+        error_info["error_type"] = "permission"
+        error_info["display_message"] = "Permission denied"
+        error_info["retry_recommended"] = False
+        logger.error(f"Permission error on {device_name} ({device_ip}): {error_str}")
+        
+    else:
+        error_info["display_message"] = f"Error: {error_str}"
+        logger.error(f"Unspecified error on {device_name} ({device_ip}): {error_str}")
+    
+    # Update diagnostics dict if provided
+    if diagnostics is not None:
+        diagnostics["error_type"] = error_info["error_type"]
+        diagnostics["error_message"] = error_str
+        if buffer:
+            diagnostics["buffer"] = buffer
+    
+    # Return formatted error info
+    return error_info
+
 def clean_terminal_on_auth_failure():
     """Clear progress bar and terminal output on authentication failure"""
     # Move up 2 lines to clear progress bar display
@@ -3747,8 +3141,1023 @@ def clean_terminal_on_auth_failure():
     # Add a newline for better spacing before error message
     print()
 
+def get_dynamic_md5_hashes():
+    """
+    Dynamically retrieve MD5 hashes for the current APIC version's switch images
+    using a three-step approach:
+    1. Try firmwareFirmware API with icurl
+    2. Fall back to md5sum files
+    3. Calculate directly if needed
+    
+    Returns:
+        tuple: (md5_32bit, md5_64bit, version_string, images_missing)
+    """
+    logger.info("Getting APIC version and MD5 hashes dynamically")
+    
+    try:
+        # Get APIC version using icurl instead of acidiag avread
+        apic_version_cmd = "icurl -gs 'http://127.0.0.1:7777/api/class/firmwareCtrlrRunning.json'"
+        version_output = subprocess.check_output(apic_version_cmd, shell=True, text=True)
+        
+        # Parse the JSON output to find node-1 and extract version
+        apic_version = None
+        try:
+            data = json.loads(version_output)
+            for item in data.get("imdata", []):
+                controller_data = item.get("firmwareCtrlrRunning", {}).get("attributes", {})
+                dn = controller_data.get("dn", "")
+                
+                # Look for node-1 in the DN
+                if "node-1" in dn:
+                    apic_version = controller_data.get("version")
+                    logger.info(f"Found APIC version from node-1: {apic_version}")
+                    break
+            
+            # If node-1 not found, try to get version from any APIC node
+            if not apic_version and data.get("imdata"):
+                for item in data.get("imdata", []):
+                    controller_data = item.get("firmwareCtrlrRunning", {}).get("attributes", {})
+                    apic_version = controller_data.get("version")
+                    if apic_version:
+                        logger.info(f"Found APIC version from alternate node: {apic_version}")
+                        break
+        
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON from icurl output: {version_output}")
+            raise RuntimeError("Failed to parse APIC version JSON")
+            
+        if not apic_version:
+            logger.error(f"Could not extract version from JSON output: {version_output}")
+            raise RuntimeError("Failed to extract APIC version from JSON output")
+        
+        logger.info(f"Found APIC version: {apic_version}")
+        
+        # Convert version format from '6.0(8e)' to '16.0(8e)' for switch images
+        # Handle versions with dots in the parentheses part (Usually a QA image)
+        version_base = apic_version.split('(')[0]
+        version_detail = apic_version.split('(')[1].rstrip(')')
+        
+        # The switch image version format starts with "1" prefix
+        switch_version = f"1{version_base}({version_detail})"
+        switch_version_dot = f"1{version_base}.{version_detail}"
+        logger.info(f"Converted to switch image version: {switch_version}")
+        
+        # Build image filenames
+        image_32bit = f"aci-n9000-dk9.{switch_version_dot}.bin"
+        image_64bit = f"aci-n9000-dk9.{switch_version_dot}-cs_64.bin"
+        
+        # Build system image names for firmware API query
+        system_image_32bit = f"aci-n9000-system.{switch_version_dot}.bin"
+        system_image_64bit = f"aci-n9000-system.{switch_version_dot}-cs_64.bin"
+        
+        logger.info(f"32-bit image: {image_32bit}")
+        logger.info(f"64-bit image: {image_64bit}")
+        logger.info(f"32-bit system image name for API: {system_image_32bit}")
+        logger.info(f"64-bit system image name for API: {system_image_64bit}")
+        
+        # STEP 1: Try using firmwareFirmware API first
+        md5_32bit = MD5Processor.get_md5_hash(image_name=image_32bit, system_image_name=system_image_32bit)
+        md5_64bit = MD5Processor.get_md5_hash(image_name=image_64bit, system_image_name=system_image_64bit)
+        
+        # Log which method was used for each image
+        if md5_32bit:
+            logger.info(f"Retrieved 32-bit MD5 from firmwareFirmware API: {md5_32bit}")
+        
+        if md5_64bit:
+            logger.info(f"Retrieved 64-bit MD5 from firmwareFirmware API: {md5_64bit}")
+        
+        # STEP 2: If API method failed for either image, try md5sum file method
+        if not md5_32bit or md5_32bit == "Image not found in API":
+            logger.info("Falling back to md5sum file for 32-bit image")
+            md5_32bit = MD5Processor.get_md5_hash(image_32bit)
+            
+            if md5_32bit and md5_32bit != "Image not found in fwrepo":
+                logger.info(f"Retrieved 32-bit MD5 from md5sum file: {md5_32bit}")
+        
+        if not md5_64bit or md5_64bit == "Image not found in API":
+            logger.info("Falling back to md5sum file for 64-bit image")
+            md5_64bit = MD5Processor.get_md5_hash(image_64bit)
+            
+            if md5_64bit and md5_64bit != "Image not found in fwrepo":
+                logger.info(f"Retrieved 64-bit MD5 from md5sum file: {md5_64bit}")
+        
+        # STEP 3: Both methods can fall back to direct calculation automatically
+        # as it's already implemented in get_md5_from_file
+        
+        # Check if both images were not found
+        images_missing = ((md5_32bit == "Image not found in fwrepo" or 
+                          md5_32bit == "Image not found in API" or 
+                          not md5_32bit) and 
+                         (md5_64bit == "Image not found in fwrepo" or 
+                          md5_64bit == "Image not found in API" or 
+                          not md5_64bit))
+        
+        if images_missing:
+            logger.error("Neither 32-bit nor 64-bit images were found with any method")
+            # Ensure consistent return values for missing images
+            md5_32bit = "Image not found" if not md5_32bit or md5_32bit.startswith("Image not found") else md5_32bit
+            md5_64bit = "Image not found" if not md5_64bit or md5_64bit.startswith("Image not found") else md5_64bit
+        
+        return md5_32bit, md5_64bit, apic_version, images_missing
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed with exit code {e.returncode}: {e.output if hasattr(e, 'output') else 'no output'}")
+        raise RuntimeError(f"Failed to get MD5 hashes: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error retrieving MD5 hashes: {str(e)}")
+        raise RuntimeError(f"Failed to get MD5 hashes: {str(e)}")
+
 ###########################################
-# Main Processing Logic
+# Switch Processing Functions
+###########################################
+
+def get_repodata(conn):
+    """
+    Check if the /bootflash/.rpmstore/patching/patchrepo/.repodata directory exists
+    
+    Args:
+        conn: An established SSH connection object
+        
+    Returns:
+        tuple: (result, output) where result is "PASS" if directory doesn't exist
+               or "FAIL" if it does exist
+    """
+    repodata_path = "/bootflash/.rpmstore/patching/patchrepo/.repodata"
+    
+    try:
+        # Run the ls command to check if the directory exists
+        result_type, raw_output = conn.execute_command(f"ls -lh {repodata_path}")
+        
+        # Clean the output using CommandOutputProcessor
+        output = CommandOutputProcessor.clean_output(raw_output, conn.hostname)
+        
+        # If the output contains "cannot access" or similar error, the file doesn't exist (PASS)
+        if "cannot access" in output or "No such file or directory" in output:
+            return "PASS", output
+        
+        # If the output contains file information (not empty), the file exists (FAIL)
+        elif output.strip() and not ("cannot access" in output or "No such file" in output):
+            return "FAIL", output
+        
+        # Any other case (maybe empty output or another error)
+        logger.debug(f"Repodata check returned ambiguous result: '{output}'")
+        # Default to PASS for ambiguous results
+        return "PASS", output
+    except Exception as e:
+        # If there was an error executing the command, consider it inconclusive
+        return "ERROR", f"Command execution error: {str(e)}"
+
+def validate_repodata(conn, sw_name, switch_data, progress_bar=None):
+    """
+    Perform repodata directory check and update switch_data with results
+    
+    Args:
+        conn: An established SSH connection object
+        sw_name: Switch name for identification
+        switch_data: Dictionary to update with results
+        progress_bar: Optional progress bar for UI updates
+        
+    Returns:
+        tuple: (repodata_result, cleaned_output) where
+               repodata_result is "PASS", "FAIL", or "ERROR"
+    """
+    # Update progress bar if provided
+    if progress_bar:
+        progress_bar.update(f"{sw_name}: Checking Repodata", 0)
+    
+    # Call the collect repodata function
+    repodata_result, repodata_output = get_repodata(conn)
+    
+    # Store the result in switch_data
+    switch_data["repodata_check"] = repodata_result
+    
+    # Clean and format the output using CommandOutputProcessor
+    if repodata_output:
+        cleaned_repodata = CommandOutputProcessor.clean_output(repodata_output, sw_name)
+        formatted_output = CommandOutputProcessor.format_for_display(cleaned_repodata)
+        switch_data["repodata_output"] = formatted_output
+    else:
+        switch_data["repodata_output"] = repodata_output
+    
+    # Update message to include Repodata check result
+    md5_message = switch_data.get("message", "")
+    
+    if repodata_result == "FAIL":
+        new_message = f"{md5_message} | Repodata Check: FAIL - .repodata directory exists"
+    elif repodata_result == "PASS":
+        new_message = f"{md5_message} | Repodata Check: PASS"
+    else:
+        new_message = f"{md5_message} | Repodata Check: ERROR"
+    
+    # Update the message in switch_data
+    switch_data["message"] = new_message
+    
+    return repodata_result, formatted_output if repodata_output else repodata_output
+
+def get_kickstart_ownership(raw_output, switch_name, data_dict=None, diagnostics=None):
+    """
+    Centralized helper to extract file information using CommandOutputProcessor
+    and consistently update data dictionaries.
+    
+    Args:
+        raw_output (str): Raw output from ls command
+        switch_name (str): Switch hostname for cleaning output
+        data_dict (dict, optional): Dictionary to update with file info
+        diagnostics (dict, optional): Diagnostics dictionary to update with file info
+    
+    Returns:
+        dict: The extracted file information
+    """
+    # Use CommandOutputProcessor to extract file information
+    file_info = CommandOutputProcessor.extract_file_info(raw_output, switch_name)
+    
+    # Update the provided dictionaries if they're given
+    if data_dict is not None:
+        for key, value in file_info.items():
+            if value is not None:
+                data_dict[key] = value
+    
+    if diagnostics is not None:
+        for key, value in file_info.items():
+            if value is not None:
+                diagnostics[key] = value
+    
+    return file_info
+
+def _modify_kickstart_ownership(conn, sw_name, kickstart_image, switch_data, diagnostics):
+    """Proactively fix permissions on the image file."""
+    if not kickstart_image:
+        logger.debug(f"No kickstart image path provided for {sw_name}")
+        return False
+    
+    try:
+        # Check current file status
+        ls_cmd = f"ls -l {kickstart_image}"
+        ls_status, ls_output = conn.execute_command(ls_cmd)
+        if ls_status != "success":
+            logger.debug(f"Failed to get file info for {sw_name}: {ls_output.strip()}")
+            return False
+        
+        # Store raw ls output
+        switch_data["raw_ls_output"] = ls_output.strip()
+        diagnostics["raw_ls_output"] = ls_output.strip()
+        
+        # Use the centralized extraction function to get file information BEFORE changes
+        before_file_info = get_kickstart_ownership(ls_output, sw_name)
+        
+        # Store the original permissions and ownership information from the extracted data
+        if before_file_info["file_permissions"]:
+            switch_data["original_permissions"] = before_file_info["file_permissions"]
+            diagnostics["original_permissions"] = before_file_info["file_permissions"]
+        
+        if before_file_info["file_owner"] and before_file_info["file_group"]:
+            switch_data["original_ownership"] = f"{before_file_info['file_owner']}:{before_file_info['file_group']}"
+            diagnostics["original_ownership"] = f"{before_file_info['file_owner']}:{before_file_info['file_group']}"
+        
+        # Execute ownership/permission commands and track results
+        for cmd_type, cmd in [
+            ("chown", f"chown root:admin {kickstart_image}"),
+            ("chmod", f"chmod 666 {kickstart_image}")
+        ]:
+            logger.info(f"Sending {cmd_type.upper()} COMMAND TO {sw_name}: {cmd}")
+            status, output = conn.execute_command(cmd)
+            
+            # Clean the output using CommandOutputProcessor
+            cleaned_output = CommandOutputProcessor.clean_output(output, sw_name)
+            
+            result_key = f"{cmd_type}_{'success' if status == 'success' else 'failure'}"
+            diagnostics[result_key] = {"status": status, "output": cleaned_output}
+            
+            if status != "success":
+                logger.debug(f"{cmd_type.capitalize()} command failed on {sw_name}: {cleaned_output}")
+        
+        # Verify the changes
+        verify_status, verify_output = conn.execute_command(ls_cmd)
+        
+        # Use CommandOutputProcessor to clean the verification output
+        cleaned_verify = CommandOutputProcessor.clean_output(verify_output, sw_name)
+        switch_data["verification_output"] = cleaned_verify
+        diagnostics["verification_output"] = cleaned_verify
+        
+        # Use the centralized extraction function again to get file information AFTER changes
+        after_file_info = get_kickstart_ownership(verify_output, sw_name)
+        
+        # Determine if permission and ownership were successfully changed
+        permission_success = (after_file_info["file_permissions"] == "-rw-rw-rw-")
+        ownership_success = (after_file_info["file_owner"] == "root" and 
+                             after_file_info["file_group"] == "admin")
+        
+        switch_data["permissions_fixed"] = permission_success
+        switch_data["ownership_fixed"] = ownership_success
+        switch_data["ownership_fixed_attempted"] = True
+        
+        # Add the full file info after changes to the switch_data
+        for key, value in after_file_info.items():
+            if value is not None:
+                switch_data[key] = value
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error fixing permissions on {sw_name}: {str(e)}")
+        switch_data["permission_fix_error"] = str(e)
+        diagnostics["permission_fix_error"] = str(e)
+        return False
+
+def perform_switch_validation(conn, sw_name, sw_ip, progress_bar, md5_32bit, md5_64bit, 
+                             switch_info=None, kickstart_image=None, memory_kb=None, memory_gb=None,
+                             is_modular_spine=False):
+    """
+    Base function for common switch checks. Handles data collection, MD5 validation,
+    permission error handling, and repodata checks.
+    
+    Args:
+        conn: An established SSH connection object
+        sw_name: Switch name for identification
+        sw_ip: Switch IP address
+        progress_bar: Progress bar object for updates
+        md5_32bit: MD5 checksum for 32-bit image (None for modular spines)
+        md5_64bit: MD5 checksum for 64-bit image
+        switch_info: SwitchInfo instance with pre-collected data (optional)
+        kickstart_image: Pre-collected kickstart image path (optional)
+        memory_kb: Pre-collected memory in KB (optional)
+        memory_gb: Pre-collected memory in GB (optional)
+        is_modular_spine: Whether this is a modular spine (affects validation logic)
+        
+    Returns:
+        dict: Switch data with validation results
+    """
+    # Initialize diagnostics dict
+    diagnostics = {"error_type": None}
+    
+    # Create data structure
+    switch_data = {
+        "switch": sw_name,
+        "ip": sw_ip,
+        "status": "success",
+        "memory_kb": memory_kb,
+        "memory_gb": memory_gb,
+        "image_path": kickstart_image,
+        "md5sum": None,
+        "result": "INFO",
+        "message": "Modular spine" if is_modular_spine else "Fixed switch",
+        "diagnostics": diagnostics
+    }
+    
+    # Attempt to fix permissions proactively if we're root user and have image path
+    if switch_info and switch_info.username == "root" and kickstart_image:
+        progress_bar.update(f"{sw_name}: Fixing file permissions", 0)
+        _modify_kickstart_ownership(conn, sw_name, kickstart_image, switch_data, diagnostics)
+    
+    # Collect data if insufficient pre-collected data is available
+    if not kickstart_image or (not memory_kb and not memory_gb):
+        # Only run show version if we don't already have complete data
+        progress_bar.update(f"{sw_name}: Getting version information", 0)
+        result_type, version_output = conn.execute_command("show version")
+        if result_type == "success":
+            # Clean the output using CommandOutputProcessor
+            cleaned_output = CommandOutputProcessor.clean_output(version_output, sw_name)
+            
+            # Extract kickstart image path if we don't have it yet
+            if not kickstart_image:
+                image_path = SwitchDataCollector.extract_image_path(cleaned_output)
+                switch_data["image_path"] = image_path
+                kickstart_image = image_path
+            
+            # Extract memory information if not pre-collected
+            if not memory_kb and not memory_gb:
+                memory_kb = SwitchDataCollector.extract_memory(cleaned_output)
+                if memory_kb:
+                    switch_data["memory_kb"] = memory_kb
+                    # Convert to standardized GB value using MemoryCheck
+                    switch_data["memory_gb"] = MemoryCheck.standardize_memory_gb(memory_kb)
+        else:
+            switch_data["result"] = "ERROR" 
+            switch_data["message"] = "Failed to retrieve version information"
+            switch_data["status"] = "error"
+            return switch_data
+    
+    # Get MD5 checksum of the image if we have the path
+    if kickstart_image:
+        progress_bar.update(f"{sw_name}: Retrieving MD5 hash", 0)
+        result_type, md5_output = conn.execute_command(f"md5sum {kickstart_image}")
+        
+        # Process MD5 output using CommandOutputProcessor
+        md5_result = CommandOutputProcessor.parse_md5_output(md5_output, sw_name)
+        
+        # Store the command output to help diagnose MD5 retrieval failures
+        switch_data["md5_command_output"] = md5_output
+        
+        # Check if there was an error
+        if not md5_result["success"]:
+            # Store error information
+            switch_data["md5_error_type"] = md5_result["error_type"]
+            switch_data["md5_error_message"] = md5_result["error_message"]
+            
+            # If we have a permission error, try to fix permissions and retry
+            if md5_result["error_type"] == "permission" and not switch_data.get("ownership_fixed"):
+                conn.execute_command(f"chmod 666 {kickstart_image}")
+                result_type, retry_output = conn.execute_command(f"md5sum {kickstart_image}")
+                
+                # Process retry output using CommandOutputProcessor
+                retry_result = CommandOutputProcessor.parse_md5_output(retry_output, sw_name)
+                switch_data["md5_command_output"] = retry_output
+                
+                if retry_result["success"]:
+                    # Retry was successful
+                    switch_data["md5sum"] = retry_result["md5_hash"]
+                    # Clear error information
+                    switch_data.pop("md5_error_type", None)
+                    switch_data.pop("md5_error_message", None)
+                else:
+                    # Retry failed, keep error information
+                    switch_data["md5_retry_error_type"] = retry_result["error_type"]
+                    switch_data["md5_retry_error_message"] = retry_result["error_message"]
+        else:
+            # No error, store the hash
+            switch_data["md5sum"] = md5_result["md5_hash"]
+        
+        # Check for permission denied in md5 output and get file owner info
+        if ("md5_error_type" in switch_data and switch_data["md5_error_type"] == "permission") or \
+           ("md5_command_output" in switch_data and "permission denied" in switch_data["md5_command_output"].lower()):
+            progress_bar.update(f"{sw_name}: Getting file permissions", 0)
+            
+            # Get file information
+            result_type, ls_output = conn.execute_command(f"ls -lh {kickstart_image}")
+            
+            # Store raw output for reference
+            switch_data["raw_ls_output"] = ls_output.strip()
+            diagnostics["raw_ls_output"] = ls_output.strip()
+            
+            # Use centralized extraction function
+            get_kickstart_ownership(ls_output, sw_name, switch_data, diagnostics)
+        
+        # Apply appropriate validation logic based on switch type
+        md5_hash = switch_data.get("md5sum")
+        if md5_hash:
+            if is_modular_spine:
+                # Modular spines MUST use 64-bit image regardless of memory
+                if md5_hash == md5_64bit:
+                    switch_data["result"] = "PASS"
+                    switch_data["message"] = "Running correct 64-bit image for modular spine"
+                else:
+                    switch_data["result"] = "FAIL"
+                    switch_data["message"] = "Modular spine running incorrect image (must use 64-bit image)"
+            else:
+                # For regular switches, validate against memory capacity
+                image_result, image_message = SwitchDataCollector.validate_image(switch_data, md5_32bit, md5_64bit)
+                switch_data["result"] = image_result
+                switch_data["message"] = image_message
+        else:
+            switch_data["result"] = "ERROR"
+            switch_data["message"] = "Could not retrieve MD5 information"
+    else:
+        switch_data["result"] = "ERROR" 
+        switch_data["message"] = "Missing kickstart image path"
+        switch_data["status"] = "error"
+    
+    # Always perform the repodata check regardless of other results
+    validate_repodata(conn, sw_name, switch_data, progress_bar)
+    
+    # For regular switches, additional error categorization
+    if not is_modular_spine and switch_data["status"] != "success":
+        diagnostics.update(SwitchDataCollector.categorize_error(switch_data))
+    
+    # Make sure md5_command_output is directly added to diagnostics
+    if "md5_command_output" in switch_data:
+        diagnostics["md5_command_output"] = switch_data["md5_command_output"]
+    
+    # Add diagnostics to the result
+    switch_data["diagnostics"] = diagnostics
+    
+    return switch_data
+
+###########################################
+# Batch Processing Functions
+###########################################
+
+def process_switch(sw_ip, switch_info, progress_bar, username, password, md5_32bit, md5_64bit, bind_addr=None, is_modular_spine=False):
+    """Process a single switch and collect results with robust error handling"""
+    sw_name = switch_info.get_switch_name(sw_ip)
+    # Create diagnostics dict with an error_type field to track the nature of the error
+    diagnostics = {
+        "error_type": None  # Will be set to "connection", "memory_retrieval", "md5_retrieval", etc.
+    }
+    
+    # Common result structure with defaults
+    switch_data = {
+        "switch": sw_name,
+        "ip": sw_ip,
+        "status": "error",
+        "result": "ERROR",
+        "message": "Processing not started",
+        "diagnostics": diagnostics
+    }
+    
+    try:
+        progress_bar.update(f"Connecting to {sw_name}", 0)
+        
+        # Retrieve pre-collected kickstart image data if available
+        kickstart_image = None
+        memory_kb = None
+        memory_gb = None
+        node_id = switch_info.get_switch_id(sw_ip)
+        
+        # Retrieve kickstart image information if available
+        if node_id and hasattr(switch_info, 'switch_kickstart') and node_id in switch_info.switch_kickstart:
+            kickstart_data = switch_info.switch_kickstart[node_id]
+            kickstart_image = kickstart_data['full_path']
+            # Store boot mode information for display
+            if 'mode' in kickstart_data:
+                switch_data["boot_mode"] = kickstart_data['mode']
+            logger.debug(f"Using pre-collected kickstart image for {sw_name}: {kickstart_image}")
+            # Add to switch_data for use in check functions
+            switch_data["image_path"] = kickstart_image
+            
+        # Retrieve memory information if available
+        if node_id and hasattr(switch_info, 'switch_memory') and node_id in switch_info.switch_memory:
+            mem_info = switch_info.switch_memory[node_id]
+            if isinstance(mem_info, dict) and 'kb' in mem_info and 'gb' in mem_info:
+                memory_kb = mem_info['kb']
+                memory_gb = mem_info['gb']
+                # Add to switch_data for use in check functions
+                switch_data["memory_kb"] = memory_kb
+                switch_data["memory_gb"] = memory_gb
+                logger.debug(f"Using pre-collected memory data for {sw_name}: {memory_kb} KB ({memory_gb} GB)")
+        
+        # Use context manager for connection handling
+        with Connection(sw_ip, username, password, timeout=2, bind_address=bind_addr) as conn:
+            # Authentication failures should be caught immediately with no retry
+            try:
+                # __enter__ already called connect in the context manager
+                if not conn.child:  # Check if connection was established
+                    # Handle connection issues
+                    error_info = handle_connection_error(
+                        device_name=sw_name,
+                        device_ip=sw_ip,
+                        error="Failed to connect",
+                        error_type="connection",
+                        diagnostics=diagnostics,
+                        logger=get_logger(f'connection.{sw_ip}')
+                    )
+                    switch_data["message"] = error_info["display_message"]
+                    return switch_data
+            except RuntimeError as e:
+                if "AUTH_FAILURE" in str(e):
+                    # Handle authentication failures
+                    error_info = handle_connection_error(
+                        device_name=sw_name,
+                        device_ip=sw_ip,
+                        error=e,
+                        error_type="auth_failure",
+                        logger=get_logger(f'connection.{sw_ip}')
+                    )
+                    raise RuntimeError(f"AUTH_FAILURE on {sw_name}")
+                else:
+                    # Handle other runtime errors
+                    error_info = handle_connection_error(
+                        device_name=sw_name,
+                        device_ip=sw_ip,
+                        error=e,
+                        error_type="exception",
+                        diagnostics=diagnostics,
+                        logger=get_logger(f'connection.{sw_ip}')
+                    )
+                    raise
+            
+            # Skip checking if we're root - we know we are if username is "root"
+            is_root = (username == "root")
+            
+            # If we're running as root, handle file permissions proactively
+            if is_root and kickstart_image:
+                progress_bar.update(f"{sw_name}: Fixing file permissions", 0)
+                logger.info(f"Attempting to fix file permissions for {kickstart_image} on {sw_name}")
+                _modify_kickstart_ownership(conn, sw_name, kickstart_image, switch_data, diagnostics)
+                
+                # Now verify the changes
+                verify_cmd = f"ls -l {kickstart_image}"
+                verify_result = conn.execute_command(verify_cmd)
+                if verify_result == "success":
+                    logger.info(f"Final file permissions: {conn.output.strip()}")
+                else:
+                    logger.debug(f"Could not verify final permissions: {conn.output}")
+            
+            # Store any ownership data we've collected before calling base_switch_checks
+            ownership_data = {}
+            for key in ["ownership_fixed", "ownership_message", "original_ownership", 
+                        "permissions_fixed", "original_permissions"]:
+                if key in switch_data:
+                    ownership_data[key] = switch_data[key]
+            
+            # Connection successful - directly call perform_switch_validation instead of wrappers
+            switch_data = perform_switch_validation(
+                conn, 
+                sw_name, 
+                sw_ip, 
+                progress_bar,
+                md5_32bit=None if is_modular_spine else md5_32bit,
+                md5_64bit=md5_64bit,
+                switch_info=switch_info,
+                kickstart_image=kickstart_image,
+                memory_kb=memory_kb,
+                memory_gb=memory_gb,
+                is_modular_spine=is_modular_spine
+            )
+            
+            # If this is a fixed switch, add collection_time if missing
+            if not is_modular_spine and "collection_time" not in switch_data:
+                switch_data["collection_time"] = "unknown"
+                
+            # Ensure raw_ls_output is preserved if collected
+            if "raw_ls_output" in diagnostics:
+                switch_data["raw_ls_output"] = diagnostics["raw_ls_output"]
+            
+            # Restore ownership information we collected earlier
+            for key, value in ownership_data.items():
+                switch_data[key] = value
+                
+            # If we're root and made ownership changes, ensure that's marked
+            if is_root and kickstart_image:
+                # Ensure ownership flags are properly set
+                if "ownership_fixed" in switch_data:
+                    switch_data["ownership_fixed_attempted"] = True
+                if "original_permissions" in switch_data:
+                    # Check current permissions against the original to determine if fixed
+                    switch_data["permissions_fixed"] = (switch_data.get("file_permissions") == "-rw-rw-rw-")
+            
+            # Add diagnostics reference to the result
+            switch_data["diagnostics"] = diagnostics
+        
+    except Exception as e:
+        # Handle any unexpected exceptions
+        error_msg = str(e)
+        diagnostics["error_type"] = "exception"
+        diagnostics["exception"] = error_msg
+        switch_data["message"] = f"Exception: {error_msg}"
+        return switch_data
+    finally:
+        # Always mark as completed in progress bar
+        progress_bar.update(f"Completed {sw_name}", 1)
+    
+    return switch_data
+
+def process_switches_in_batches(switch_ips, mod_spine_ips, switch_info, progress_bar, 
+                              md5_32bit, md5_64bit, apic_addr, batch_size=None, result_logger=None):
+    """
+    Process switches in batches with dynamic resource management
+    """
+    # Get a dedicated logger for this function to avoid duplicates
+    batch_logger = get_logger("process_switches")
+    
+    # Check system resources to determine optimal batch size
+    if batch_size is None:
+        resources = check_system_resources()
+        batch_size = resources.get("recommended_threads", 5)
+    
+    # Log but don't print to console
+    batch_logger.info(f"Using batch size of {batch_size} concurrent connections")
+    
+    results = {}
+    all_ips = switch_ips + mod_spine_ips
+    total_count = len(all_ips)
+    completed = 0
+    
+    # Process switches in batches
+    with ThreadPoolExecutor(max_workers=batch_size) as executor:
+        # Submit all jobs with metadata
+        futures = {}
+        for sw_ip in all_ips:
+            is_modular_spine = sw_ip in mod_spine_ips
+            future = executor.submit(
+                process_switch,
+                sw_ip,
+                switch_info,
+                progress_bar,
+                switch_info.username,
+                switch_info.password,
+                None if is_modular_spine else md5_32bit,
+                md5_64bit,  # Always pass md5_64bit regardless of switch type
+                apic_addr,
+                is_modular_spine
+            )
+            futures[future] = {
+                "ip": sw_ip,
+                "name": switch_info.get_switch_name(sw_ip),
+                "is_modular_spine": is_modular_spine
+            }
+        
+        # Process results as they complete
+        for future in as_completed(futures, timeout=None):
+            switch_info = futures[future]
+            sw_ip = switch_info["ip"]
+            sw_name = switch_info["name"]
+            
+            try:
+                # Add per-switch timeout
+                switch_data = future.result(timeout=120)
+                
+                # Store and log results
+                if switch_data:
+                    # Use result_logger instead of logger
+                    result_logger.log_switch_result(switch_data)
+                    results[sw_ip] = switch_data
+                
+            except concurrent.futures.TimeoutError:
+                # Use result_logger instead of logger
+                result_logger.log_switch_result({
+                    "switch": sw_name,
+                    "ip": sw_ip,
+                    "status": "timeout",
+                    "result": "ERROR", 
+                    "message": "Operation timed out after 120 seconds"
+                })
+            except Exception as e:
+                # Use result_logger instead of logger
+                result_logger.log_switch_result({
+                    "switch": sw_name,
+                    "ip": sw_ip,
+                    "status": "error",
+                    "result": "ERROR",
+                    "message": f"Exception: {str(e)}"
+                })
+            
+            # Update progress
+            completed += 1
+            progress_bar.update(f"Processed {completed} of {total_count} switches", 0)
+    
+    return results
+
+###########################################
+# Report Utilities
+###########################################
+
+def format_switch_data_for_output(switch_data, include_diagnostics=False, for_json=False):
+    """
+    Format switch data consistently for various output formats
+    
+    Args:
+        switch_data (dict): Raw switch data dictionary
+        include_diagnostics (bool): Whether to include detailed diagnostics
+        for_json (bool): Format for JSON export (no color codes, structured data)
+        
+    Returns:
+        dict: A standardized formatted data dictionary for the output format
+    """
+    # Extract common fields
+    formatted_data = {
+        "switch": switch_data.get("switch", "Unknown"),
+        "ip": switch_data.get("ip", "Unknown"),
+        "memory_kb": switch_data.get("memory_kb"),
+        "memory_gb": switch_data.get("memory_gb"),
+        "image_path": switch_data.get("image_path", "Unknown"),
+        "md5sum": switch_data.get("md5sum", "Unknown"),
+        "result": switch_data.get("result", "ERROR"),
+        "status": switch_data.get("status", "error"),
+        "boot_mode": switch_data.get("boot_mode", "normal"),
+        "collection_time": switch_data.get("collection_time", "unknown")
+    }
+    
+    # Format memory display
+    if formatted_data["memory_gb"] is not None:
+        formatted_data["memory_display"] = f"{formatted_data['memory_gb']} GB"
+    elif formatted_data["memory_kb"] not in (None, "Unknown"):
+        try:
+            gb_value = MemoryCheck.standardize_memory_gb(formatted_data["memory_kb"])
+            formatted_data["memory_display"] = f"{gb_value} GB" if gb_value else f"{formatted_data['memory_kb']} KB"
+        except (ValueError, TypeError):
+            formatted_data["memory_display"] = f"{formatted_data['memory_kb']} KB"
+    else:
+        formatted_data["memory_display"] = "Unknown"
+    
+    # Process message and extract MD5 and Repodata parts
+    full_message = switch_data.get("message", "No validation message")
+    
+    # Split the message to separate MD5 result and Repodata result
+    if " | Repodata Check:" in full_message:
+        md5_message = full_message.split(" | Repodata Check:")[0]
+        repodata_message = full_message.split(" | Repodata Check:")[1].strip()
+    else:
+        md5_message = full_message
+        repodata_message = ""
+    
+    formatted_data["md5_message"] = md5_message
+    formatted_data["repodata_message"] = repodata_message
+    
+    # Format repodata check result if available
+    repodata_result = switch_data.get("repodata_check", "ERROR")
+    formatted_data["repodata_result"] = repodata_result
+    
+    if repodata_result == "PASS":
+        formatted_data["repodata_description"] = "(.repodata file not present)"
+    elif repodata_result == "FAIL":
+        formatted_data["repodata_description"] = "(.repodata directory exists)"
+    else:
+        formatted_data["repodata_description"] = "(check failed)"
+    
+    # Add color codes for terminal display (unless for JSON)
+    if not for_json:
+        md5_color = RESULT_COLORS.get(formatted_data["result"], "")
+        repodata_color = RESULT_COLORS.get(formatted_data["repodata_result"], "")
+        reset = RESULT_COLORS["RESET"]
+        
+        formatted_data["md5_result_colored"] = f"{md5_color}{formatted_data['result']}{reset}"
+        formatted_data["repodata_result_colored"] = f"{repodata_color}{formatted_data['repodata_result']}{reset}"
+    
+    # Check for permission denied
+    permission_denied = False
+    cmd_output = switch_data.get("md5_command_output", "")
+    diagnostics = switch_data.get("diagnostics", {})
+    
+    if cmd_output and "permission denied" in cmd_output.lower():
+        permission_denied = True
+    
+    formatted_data["permission_denied"] = permission_denied
+    
+    # Determine if recommendations are needed
+    formatted_data["recommendations_needed"] = (
+        formatted_data["result"] == "FAIL" or 
+        formatted_data["repodata_result"] == "FAIL" or 
+        permission_denied
+    )
+    
+    # Only generate recommendations for JSON export
+    if formatted_data["recommendations_needed"] and for_json:
+        # Keep this recommendation generation ONLY for JSON export
+        recommendations = []
+        
+        if permission_denied:
+            recommendations.append("Re-run the script from the owner account or root to rectify the permissions issue.")
+            
+            # Look for owner information
+            owner = None
+            
+            # Try various sources for owner info
+            if "file_owner" in switch_data:
+                owner = switch_data["file_owner"]
+            elif diagnostics and "file_owner" in diagnostics:
+                owner = diagnostics["file_owner"]
+            
+            if owner:
+                recommendations.append(f"The owner of the file is: {owner}")
+        
+        if formatted_data["result"] == "FAIL" and not permission_denied:
+            recommendations.append("Contact Cisco TAC for assistance in setting boot variable to use correct switch image.")
+            recommendations.append("Defect Reference: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwj44966")
+        
+        if formatted_data["repodata_result"] == "FAIL":
+            if formatted_data["result"] == "FAIL" or permission_denied:
+                # Add a separator for better readability in text output
+                recommendations.append("")
+            recommendations.append("Contact Cisco TAC to remove .repodata file via root user.")
+            recommendations.append("Defect Reference: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwo34637")
+        
+        formatted_data["recommendations"] = recommendations
+    
+    # Include diagnostics if requested
+    if include_diagnostics:
+        # Build comprehensive diagnostics
+        diag_data = {}
+        
+        # First check for MD5 retrieval errors - this is highest priority
+        if switch_data.get("md5sum") is None and switch_data.get("image_path") is not None:
+            diag_data["error_type"] = "md5_retrieval"
+            
+            # Check command output for specific error messages
+            if cmd_output:
+                cmd_output_lower = cmd_output.lower() if cmd_output else ""
+                
+                if "permission denied" in cmd_output_lower:
+                    diag_data["md5_error"] = "Permission denied when accessing image file"
+                    
+                    # If permission denied, extract the specific output
+                    permission_line = CommandOutputProcessor.extract_single_line(
+                        cmd_output, "permission denied", switch_data.get("switch", "")
+                    )
+                    if permission_line:
+                        diag_data["permission_line"] = permission_line.strip()
+                    
+                    # Extract file info if available
+                    if "raw_ls_output" in switch_data:
+                        file_info = CommandOutputProcessor.extract_file_info(
+                            switch_data["raw_ls_output"], 
+                            switch_data.get("switch", "")
+                        )
+                        if file_info["file_line"]:
+                            diag_data["file_info"] = file_info["file_line"]
+                        elif file_info["file_details"]:
+                            diag_data["file_info"] = file_info["file_details"]
+                    
+                elif "no such file" in cmd_output_lower:
+                    diag_data["md5_error"] = "Image file not found"
+                else:
+                    diag_data["md5_error"] = "Unknown error retrieving MD5"
+                    
+                # Clean the command output for display
+                cleaned_output = CommandOutputProcessor.clean_output(
+                    cmd_output, switch_data.get("switch", "")
+                )
+                if for_json:
+                    # For JSON, just include the cleaned output
+                    diag_data["command_output"] = cleaned_output.strip()
+                else:
+                    # For text display, format it more compactly
+                    diag_data["command_output"] = CommandOutputProcessor.format_for_display(
+                        cleaned_output
+                    )
+        
+        # Next, incorporate any existing diagnostic information that's suitable for display
+        if diagnostics:
+            for key, value in diagnostics.items():
+                # Skip raw outputs and complex nested structures for clarity
+                if key not in ("raw_ls_output", "verification_output") and not isinstance(value, dict):
+                    if isinstance(value, str):
+                        # Remove ANSI color codes for consistent display
+                        value = re.sub(r'\033\[[0-9;]*m', '', value)
+                    # Don't overwrite existing error_type if we've already set it
+                    if key != "error_type" or "error_type" not in diag_data:
+                        diag_data[key] = value
+        
+        formatted_data["diagnostics"] = diag_data
+    
+    return formatted_data
+
+def export_results_to_json(results, summary, filename, apic_version):
+    """Export validation results to a JSON file for automation scenarios"""
+    try:
+        # Create a structured output format
+        export_data = {
+            "script_version": "1.0.0",
+            "timestamp": datetime.now().isoformat(),
+            "apic_version": apic_version,
+            "summary": {
+                "md5_check": {
+                    "pass": summary.get("pass", 0),
+                    "fail": summary.get("fail", 0),
+                    "warning": summary.get("warning", 0),
+                    "error": summary.get("error", 0)
+                },
+                "repodata_check": {
+                    "pass": summary.get("repodata_pass", 0),
+                    "fail": summary.get("repodata_fail", 0),
+                    "error": summary.get("repodata_error", 0)
+                },
+                "performance": {
+                    "total_time_seconds": summary.get("total_time", 0),
+                    "average_time_per_switch_seconds": summary.get("average_time", 0)
+                }
+            },
+            "switches": []
+        }
+        
+        # Process each switch result
+        for sw_ip, switch_data in results.items():
+            # Use the common formatter with JSON-specific options
+            formatted_data = format_switch_data_for_output(
+                switch_data, 
+                include_diagnostics=True,
+                for_json=True
+            )
+            
+            # Create JSON-friendly structure
+            switch_result = {
+                "name": formatted_data["switch"],
+                "ip": formatted_data["ip"],
+                "memory_kb": formatted_data["memory_kb"],
+                "memory_display": formatted_data["memory_display"],
+                "image_path": formatted_data["image_path"],
+                "md5sum": formatted_data["md5sum"],
+                "md5_check": {
+                    "result": formatted_data["result"],
+                    "message": formatted_data["md5_message"]
+                },
+                "repodata_check": {
+                    "result": formatted_data["repodata_result"],
+                    "message": formatted_data["repodata_description"]
+                },
+                "collection_time": formatted_data["collection_time"],
+                "status": formatted_data["status"]
+            }
+            
+            # Include the recommendations directly from the formatted data
+            # This preserves the TAC references and bug IDs
+            if "recommendations" in formatted_data:
+                switch_result["recommendations"] = formatted_data["recommendations"]
+            
+            # Include complete diagnostics from the formatted data
+            if "diagnostics" in formatted_data:
+                switch_result["diagnostics"] = formatted_data["diagnostics"]
+            
+            export_data["switches"].append(switch_result)
+            
+        # Write the JSON file
+        with open(filename, 'w') as json_file:
+            json.dump(export_data, json_file)
+            
+    except Exception as e:
+        logger.log_message(f"Error exporting to JSON: {str(e)}")
+        logging.error(f"Error exporting to JSON: {str(e)}")
+
+###########################################
+# Main Program Logic
 ###########################################
 
 def main():
@@ -3779,16 +4188,48 @@ def main():
     switch_info = SwitchInfo()
     result_logger = ResultLogger()  # Renamed to result_logger to avoid confusion
 
-    # Get credentials 
+    # Get credentials with special handling for root user
     if args.username and args.password:
         # If username and password are provided, use them
         switch_info.username = args.username
         switch_info.password = args.password
         print(f"Using provided credentials for user: {switch_info.username}")
+        
+        # Even with provided credentials, we still need to show debug token for root
+        if switch_info.username == "root":
+            try:
+                # Run acidiag dbgtoken command
+                result = subprocess.run(['acidiag', 'dbgtoken'], stdout=subprocess.PIPE, text=True, check=True)
+                dbgtoken = result.stdout.strip()
+                # Display the debug token to the user
+                print(f"\nDebug Token: {dbgtoken}")
+                # Note: we'll use the provided password, no need to prompt again
+            except subprocess.CalledProcessError as e:
+                print("\n\033[1;31mError: Failed to get debug token. Make sure you're running this script on an APIC.\033[0m")
     else:
-        # Otherwise prompt for credentials
+        # Otherwise prompt for credentials with special handling for root
         print("Please enter your credentials:")
-        switch_info.username, switch_info.password = switch_info.get_credentials()
+        switch_info.username = input("Username: ")
+        
+        # If username is root, show debug token before password prompt
+        if switch_info.username == "root":
+            try:
+                # Run acidiag dbgtoken command
+                result = subprocess.run(['acidiag', 'dbgtoken'], stdout=subprocess.PIPE, text=True, check=True)
+                dbgtoken = result.stdout.strip()
+                # Display the debug token to the user
+                print(f"Debug Token: {dbgtoken}")
+                # Now prompt for password
+                switch_info.password = getpass("Root Password: ")
+                print()  # Add a newline after password input
+            except subprocess.CalledProcessError as e:
+                print("\n\033[1;31mError: Failed to get debug token. Make sure you're running this script on an APIC.\033[0m")
+                switch_info.password = getpass(f"Password for {switch_info.username}: ")
+                print()
+        else:
+            # For non-root users, just ask for password normally
+            switch_info.password = getpass(f"Password for {switch_info.username}: ")
+            print()  # Print newline after password input
 
     # Get APIC management IP - print to console and log to file
     print("Getting APIC management address...")
@@ -3905,7 +4346,7 @@ def main():
             md5_64bit,
             apic_addr,
             batch_size,
-            result_logger  # Pass result_logger here
+            result_logger
         )
 
         # Generate summary when all switches processed
