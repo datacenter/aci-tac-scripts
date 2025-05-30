@@ -245,19 +245,23 @@ icurl 'http://localhost:7777/api/class/firmwareARunning.xml' > firmwareARunning.
 log "Collection of firmwareARunning objects completed."
 
 
-###Tar gzip files for download
+# Replace colons in the timestamps with hyphens for a universally acceptable filename
+safe_gSDATE=$(echo "$gSDATE" | sed 's/:/-/g')
+safe_gEDATE=$(echo "$gEDATE" | sed 's/:/-/g')
+
+# Tar gzip files for download
 log "TacOutput collection completed."
 log "Verify files and file sizes at /tmp/$tacDir"
 cd /tmp
 log "Compressing files..."
-tar --force-local -zcf $destDir/TacOutput-"$gSDATE"-to-"$gEDATE".tgz $tacDir
+tar --force-local -zcf $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE".tgz $tacDir
 log "Compression completed"
-chmod 777 $destDir/TacOutput-"$gSDATE"-to-"$gEDATE".tgz
-log2 "Logs available for SCP or SFTP download from $destDir/TacOutput-$gSDATE-to-$gEDATE.tgz"
+chmod 777 $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE".tgz
+log2 "Logs available for SCP or SFTP download from $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
 if [[ $destDir == "/data/techsupport" ]]; then
-    log2 "To download through your web browser go to https://<apic address>/files/$apicID/techsupport/TacOutput-$gSDATE-to-$gEDATE.tgz"
+    log2 "To download through your web browser go to https://<apic address>/files/$apicID/techsupport/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
 fi
 log2 ""
 log2 "To remove files when done run"
 log2 "rm -rf /tmp/$tacDir"
-log2 "rm -f $destDir/TacOutput-$gSDATE-to-$gEDATE.tgz"
+log2 "rm -f $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
