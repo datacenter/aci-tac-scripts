@@ -3,9 +3,9 @@
 This tool is intended to verify and assist in troubleshooting routed multicast (PIM enabled) in ACI.
 
 # Usage
-1. Download the mcast_validator file and scp/ftp/sftp/etc it onto the apic.
+1. Download the mcast_validator file and scp/ftp/sftp/etc it onto the apic in /data/techsupport or the user home directory.
 2. cd to the location of the file.
-3. Execute - ```./mcast_validator```
+3. Execute - ```./mcast_validator``` <-- If on an m4/l4 apic, run ```TMPDIR=/data/techsupport ./mcast_validator```
 
 The tool will prompt for user inputs or inputs can be supplied at the command line. Refer to the help documentation for argument examples.
 
