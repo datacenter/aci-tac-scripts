@@ -249,7 +249,7 @@ EOF
             read -r -d '' CMD2 <<'EOF'
                 if [[ $dump_cnt == yes ]]; then
                     vsh_lc -c "show platform internal counters port detail";
-                    cat /dev/null > /var/log/bv.log;
+                    cat /dev/null > /var/sysmgr/tmp_logs/bv.log;
                 fi;
 
                 if [[ $clear_cnt == yes ]]; then
@@ -258,9 +258,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 64 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -269,7 +269,7 @@ EOF
                     done;
                 fi;
                 if [[ $dump_cnt == yes ]]; then
-                    cat /var/log/bv.log;
+                    cat /var/sysmgr/tmp_logs/bv.log;
                 fi;
 EOF
             CMD+='
@@ -310,7 +310,7 @@ EOF
             read -r -d '' CMD2 <<'EOF'
                 if [[ $dump_cnt == yes ]]; then
                     vsh_lc -c "show platform internal counters port detail";
-                    cat /dev/null > /var/log/bv.log;
+                    cat /dev/null > /var/sysmgr/tmp_logs/bv.log;
                 fi;
 
                 if [[ $clear_cnt == yes ]]; then
@@ -319,9 +319,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 32 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -330,7 +330,7 @@ EOF
                     done;
                 fi;
                 if [[ $dump_cnt == yes ]]; then
-                    cat /var/log/bv.log;
+                    cat /var/sysmgr/tmp_logs/bv.log;
                 fi;
 EOF
             CMD+='
@@ -402,7 +402,7 @@ EOF
             read -r -d '' CMD2 <<'EOF'
                 if [[ $dump_cnt == yes ]]; then
                     vsh_lc -c "show platform internal counters port detail";
-                    cat /dev/null > /var/log/bv.log;
+                    cat /dev/null > /var/sysmgr/tmp_logs/bv.log;
                 fi;
 
                 if [[ $clear_cnt == yes ]]; then
@@ -411,9 +411,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 10 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -422,7 +422,7 @@ EOF
                     done;
                 fi;
                 if [[ $dump_cnt == yes ]]; then
-                    cat /var/log/bv.log;
+                    cat /var/sysmgr/tmp_logs/bv.log;
                 fi;
 EOF
             CMD+='
@@ -459,7 +459,7 @@ EOF
             read -r -d '' CMD2 <<'EOF'
                 if [[ $dump_cnt == yes ]]; then
                     vsh_lc -c "show platform internal counters port detail";
-                    cat /dev/null > /var/log/bv.log;
+                    cat /dev/null > /var/sysmgr/tmp_logs/bv.log;
                 fi;
 
                 if [[ $clear_cnt == yes ]]; then
@@ -468,9 +468,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 54 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -479,7 +479,7 @@ EOF
                     done;
                 fi;
                 if [[ $dump_cnt == yes ]]; then
-                    cat /var/log/bv.log;
+                    cat /var/sysmgr/tmp_logs/bv.log;
                 fi;
 EOF
             CMD+='
@@ -524,7 +524,7 @@ EOF
             read -r -d '' CMD2 <<'EOF'
                 if [[ $dump_cnt == yes ]]; then
                     vsh_lc -c "show platform internal counters port detail";
-                    cat /dev/null > /var/log/bv.log;
+                    cat /dev/null > /var/sysmgr/tmp_logs/bv.log;
                 fi;
 
                 if [[ $clear_cnt == yes ]]; then
@@ -533,9 +533,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 108 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -544,7 +544,7 @@ EOF
                     done;
                 fi;
                 if [[ $dump_cnt == yes ]]; then
-                    cat /var/log/bv.log;
+                    cat /var/sysmgr/tmp_logs/bv.log;
                 fi;
 EOF
             CMD+='
@@ -589,7 +589,7 @@ EOF
             read -r -d '' CMD2 <<'EOF'
                 if [[ $dump_cnt == yes ]]; then
                     vsh_lc -c "show platform internal counters port detail";
-                    cat /dev/null > /var/log/bv.log;
+                    cat /dev/null > /var/sysmgr/tmp_logs/bv.log;
                 fi;
 
                 if [[ $clear_cnt == yes ]]; then
@@ -598,9 +598,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 108 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/log/bv.log;
+                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -609,7 +609,7 @@ EOF
                     done;
                 fi;
                 if [[ $dump_cnt == yes ]]; then
-                    cat /var/log/bv.log;
+                    cat /var/sysmgr/tmp_logs/bv.log;
                 fi;
 EOF
             CMD+='
@@ -656,6 +656,7 @@ function connect() {
             build_remote_commands
             CMD=$(echo "$CMD" | perl -pe 's/^\s+//g')
 
+            log "Starting connection to node $1 linecard $lc (model: $mod_model)..."
             echo "Connecting to node $1 at $nodeAddr: module $lc..." > $DIR/node-$1.txt
             if [[ $nodeAddr != "" ]]; then
                 echo "NODE $node_dn : MOD $lc : MODEL $mod_model" > $DIR/node-$1-mod-$lc.txt
@@ -680,6 +681,7 @@ function connect() {
             build_remote_commands
             CMD=$(echo "$CMD" | perl -pe 's/^\s+//g')
 
+            log "Starting connection to node $1 fabric module $fm (model: $mod_model)..."
             echo "Connecting to node $1 at $nodeAddr: module $fm..." > $DIR/node-$1.txt
             if [[ $nodeAddr != "" ]]; then
                 echo "NODE $node_dn : MOD $fm : MODEL $mod_model" > $DIR/node-$1-mod-$fm.txt
@@ -704,6 +706,7 @@ function connect() {
         build_remote_commands
         CMD=$(echo "$CMD" | perl -pe 's/^\s+//g')
 
+        log "Starting connection to node $1 $node_role (model: $mod_model)..."
         echo "Connecting to node $1 at $nodeAddr..." > $DIR/node-$1.txt
         if [[ $nodeAddr != "" ]]; then
             echo "NODE $node_dn : : MODEL $mod_model" > $DIR/node-$1.txt
@@ -767,7 +770,8 @@ function display_counters() {
 
             #Read output. k3 is fcs errors, k4 is rx stomps, k5 is tx frame errors
             cat "$DIR"/summary.txt | (sed -u 1q; sort -k3 -k4 -k5 -b -rn) > "$DIR"/summary_sorted.txt
-            cat "$DIR"/summary_sorted.txt
+            log "Sorted summary of Errors available at $DIR/summary_sorted.txt"
+            cat "$DIR"/summary_sorted.txt | egrep -v "\s0\s+0\s+0$" | more
         fi
     else
         log "Counters from previous script run were not found at $DIR."
@@ -797,17 +801,15 @@ function display_help() {
     echo "Supported Options:"
     echo "n:    Specify list of node id's separated by commands. Use 'all' keyword to execute for all nodes. -n"
     echo "      is required if dumping or clearing counters."
-    echo "d:    Get interface counters. Can't be used in conjunction with the clear options."
+    echo "d:    Get interface counters. Can't be used in conjunction with the clear options. Automatically"
+    echo "      displays sorted summary of FCS, CRC/Stomps, and TX Frame Errors after collection."
     echo "c:    Clear platform counters (excluding BearValley counters). Can't be used in conjunction -d."
     echo "x:    Clear BearValley counters. Can't be used in conjunction -d."
-    echo "s:    Once the script has been run, -s formats data into a list sorted by FCS, Stomp, and TX Err."
     echo ""
     echo "Example Usage:"
     echo "      /tmp/crc_checker.sh -n all -d <--collect platform counters for all gen2+ nodes"
     echo "      /tmp/crc_checker.sh -n all -x -c <--clear platform and BearValley counters for all gen2+ nodes"
     echo "      /tmp/crc_checker.sh -n 1001,1002 -c <--clear platform counters for nodes 1001 and 1002"
-    echo "      /tmp/crc_checker.sh -s <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on"
-    echo "                             last counters in /data/techsupport/int_counters"
     echo ""
     echo "All outputs are logged to /data/techsupport/int_counters"
     echo "****************************************************************************************************"
@@ -832,7 +834,7 @@ clear_cnt=no
 clear_bv=no
 
 #####Take Args from Command
-optspec="n:dcxsh"
+optspec="n:dcxh"
 while getopts "$optspec" optchar; do
   case $optchar in
     n)
@@ -853,11 +855,6 @@ while getopts "$optspec" optchar; do
     x)
         #clear bv mac stats
         clear_bv=yes
-        ;;
-    s)
-        #show sorted mac stats.
-        display_counters
-        exit 0
         ;;
     h)
         display_help
@@ -921,16 +918,43 @@ log "List of nodes to process: $nodeList"
 global_conn_params
 
 #Do Things
+log "Starting to process nodes..."
+max_jobs=10
 for node in $nodeList; do
-    get_node_role "$node"
-    connect "$node"
+    # Wait if we've reached max concurrent jobs
+    while [ $(jobs -r | wc -l) -ge $max_jobs ]; do
+        sleep 0.1
+    done
+    
+    {
+        log "Processing node $node..."
+        get_node_role "$node"
+        connect "$node"
+        log "Completed dispatching connections for node $node"
+    } &
 done
 
 #Since ssh uses the -f option to background the threads but doesn't set the PID to be a child of the main script PID, setting script to wait 30 seconds for all threads to complete before finishing.
 if [[ $dump_cnt == "yes" ]]; then
+    log "All connections dispatched. Waiting for background threads to complete (30 seconds)..."
     for (( c=30; c>=0; c-- )); do
+        if [[ $((c % 10)) -eq 0 ]]; then
+            log "Waiting for threads... ($c seconds remaining)"
+        fi
         sleep 1
     done
+    log "Wait period complete. All threads should be finished."
+    log "Raw command outputs are collected at $DIR"
+    log "Generating sorted summary..."
+    display_counters
+else
+    log "All connections dispatched. Waiting for background threads to complete (30 seconds)..."
+    for (( c=30; c>=0; c-- )); do
+        if [[ $((c % 10)) -eq 0 ]]; then
+            log "Waiting for threads... ($c seconds remaining)"
+        fi
+        sleep 1
+    done
+    log "Wait period complete. All threads should be finished."
+    log "Raw command outputs are collected at $DIR"
 fi
-
-log "Raw command outputs are collected at $DIR"
