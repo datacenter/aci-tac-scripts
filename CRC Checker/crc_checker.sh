@@ -771,6 +771,7 @@ function display_counters() {
             #Read output. k3 is fcs errors, k4 is rx stomps, k5 is tx frame errors
             cat "$DIR"/summary.txt | (sed -u 1q; sort -k3 -k4 -k5 -b -rn) > "$DIR"/summary_sorted.txt
             log "Sorted summary of Errors available at $DIR/summary_sorted.txt"
+            log "Note: Only non-zero error entries are displayed below. To see all entries, view the above file directly."
             cat "$DIR"/summary_sorted.txt | egrep -v "\s0\s+0\s+0$" | more
         fi
     else
