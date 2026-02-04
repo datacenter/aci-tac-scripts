@@ -790,7 +790,7 @@ function display_help() {
     echo "    -Internal interface counters on line cards and fabric modules"
     echo "    -BearValley interface counters on platforms that support it"
     echo ""
-    echo "The script requires a root password!"
+    echo "The script requires an admin password!"
     echo ""
     echo "Once counters are collected, it is organized using the -s option into a listed sorted by FCS Errors,"
     echo "CRC Stomps, and TX Frame Errors"
