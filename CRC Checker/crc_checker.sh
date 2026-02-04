@@ -26,8 +26,7 @@ fi
 function global_conn_params() {
     myAddr=$(icurl 'http://localhost:7777/api/class/topSystem.json?query-target-filter=eq(topSystem.name,"'"$HOSTNAME"'")' 2>/dev/null  | python3 -m json.tool | egrep  "\"address\"\:" | awk -F "\"" '{print $4}')
     username='apic#fallback\\admin'
-	echo "Enter Admin Password:"
-    read -r pswd
+	read -r -s -p "Enter admin Password: " pswd
 
     ssh_c='sshpass -p '$pswd' nohup ssh -f -o ServerAliveInterval=2 -o ServerAliveCountMax=1 -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -tq -b '$myAddr' '$username
 }
