@@ -1,4 +1,5 @@
 Support Information
+
 This script is designed for ACI 4.2+ and requires the nxos_binlog_decode utility. For issues or enhancements, consult with your Cisco TAC engineer.
 
 Version Compatibility: ACI 4.2 and higher
