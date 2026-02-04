@@ -26,11 +26,9 @@ fi
 function global_conn_params() {
     myAddr=$(icurl 'http://localhost:7777/api/class/topSystem.json?query-target-filter=eq(topSystem.name,"'"$HOSTNAME"'")' 2>/dev/null  | python3 -m json.tool | egrep  "\"address\"\:" | awk -F "\"" '{print $4}')
     username='apic#fallback\\admin'
-    if [ -t 0 ]; then
-        echo "Script requires admin credentials. Exiting..."
-    else
-        read -r pswd
-    fi
+	echo "Enter Admin Password:"
+    read -r pswd
+
     ssh_c='sshpass -p '$pswd' nohup ssh -f -o ServerAliveInterval=2 -o ServerAliveCountMax=1 -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -tq -b '$myAddr' '$username
 }
 
@@ -790,7 +788,7 @@ function display_help() {
     echo "    -Internal interface counters on line cards and fabric modules"
     echo "    -BearValley interface counters on platforms that support it"
     echo ""
-    echo "The script requires an admin password!"
+    echo "The script requires a root password!"
     echo ""
     echo "Once counters are collected, it is organized using the -s option into a listed sorted by FCS Errors,"
     echo "CRC Stomps, and TX Frame Errors"
@@ -806,10 +804,10 @@ function display_help() {
     echo "s:    Once the script has been run, -s formats data into a list sorted by FCS, Stomp, and TX Err."
     echo ""
     echo "Example Usage:"
-    echo "      bash ./crc_checker.sh -n all -d <--collect platform counters for all gen2+ nodes"
-    echo "      bash ./crc_checker.sh -n all -x -c <--clear platform and BearValley counters for all gen2+ nodes"
-    echo "      bash ./crc_checker.sh -n 1001,1002 -c <--clear platform counters for nodes 1001 and 1002"
-    echo "      bash ./crc_checker.sh -s <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on"
+    echo "      /tmp/crc_checker.sh -n all -d <--collect platform counters for all gen2+ nodes"
+    echo "      /tmp/crc_checker.sh -n all -x -c <--clear platform and BearValley counters for all gen2+ nodes"
+    echo "      /tmp/crc_checker.sh -n 1001,1002 -c <--clear platform counters for nodes 1001 and 1002"
+    echo "      /tmp/crc_checker.sh -s <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on"
     echo "                             last counters in /data/techsupport/int_counters"
     echo ""
     echo "All outputs are logged to /data/techsupport/int_counters"
