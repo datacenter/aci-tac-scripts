@@ -10,7 +10,6 @@
 
 1. [Background](#background)
 2. [How It Works](#how-it-works)
-   - [Lifetime Calculation](#lifetime-calculation)
 3. [Usage](#usage)
    - [Command-line Arguments](#command-line-arguments)
 4. [Console Output](#console-output)
@@ -59,18 +58,6 @@ The script performs the following steps:
 | 9 | Flags **CSCwt38698**: Micron SSD + alarm raised + `pe_lifetime_pct < 80%`. |
 | 10 | Writes a CSV report (sorted by **Actual Lifetime % descending**). |
 | 11 | Prints a console summary with two clearly separated sections (see below). |
-
-### Lifetime Calculation
-
-**Micron drives** (only — P/E calculation applies):
-
-$$\text{pe\_lifetime\_pct} = \frac{\text{peCycles}}{\text{pe\_max}} \times 100$$
-
-Where `pe_max` is the rated maximum Program/Erase cycles for the specific SSD model, sourced from the `SSD_THRESHOLDS` table in the script.
-
-**Non-Micron drives** (Intel, Hynix, Smart Modular): the raw `lifetime` field from `eqptFlash` is used as-is. No P/E calculation is performed. The `P/E Lifetime %` column will be empty for these drives.
-
-In both cases, the **`Actual Lifetime %`** column reflects the correct lifetime value for that drive — `pe_lifetime_pct` for Micron, `lifetime` for everyone else.
 
 ---
 
