@@ -234,8 +234,6 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
     fi        
 done < '/tmp/'$tacDir'/args.txt'
 
-rm -f /tmp/$tacDir/objects.txt
-
 ###Collect additional MO's that can't be sorted by created attribute
 log "Collecting fabricNode objects..."
 icurl 'http://localhost:7777/api/class/fabricNode.xml' > fabricNode.xml 2> fabricNode.out
@@ -264,7 +262,7 @@ log2 "Logs available for SCP or SFTP download from $destDir/TacOutput-$safe_gSDA
 if [[ $destDir == "/data/techsupport" ]]; then
     log2 "To download through your web browser go to https://<apic address>/files/$apicID/techsupport/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
 fi
+rm -rf /tmp/$tacDir
 log2 ""
 log2 "To remove files when done run"
-log2 "rm -rf /tmp/$tacDir"
 log2 "rm -f $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
