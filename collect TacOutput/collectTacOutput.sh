@@ -91,6 +91,8 @@ if [[ "$1" == "--help" ]] || [[ "$1" == "--h" ]]; then
     exit 0
 fi
 
+tacDir="TacOutput`date "+%Y-%m-%dT%H-%M-%S"`"
+
 #####Take Args from Command
 optspec="b:e:o:d:hq"
 while getopts "$optspec" optchar; do
@@ -106,7 +108,8 @@ while getopts "$optspec" optchar; do
             if [[ $CMD == "all" ]]; then
                 CMD="1,2,3,4,5,6,7,8,9"
             fi            
-        echo $CMD | sed 's/,/\n/g' > /tmp/args.txt
+        mkdir /tmp/$tacDir
+        echo $CMD | sed 's/,/\n/g' > /tmp/$tacDir/args.txt
         ;;
     d)
         destDir=$OPTARG
@@ -131,12 +134,12 @@ done
 
 ###Make dir for outputs and get Apic ID
 apicID=`icurl 'http://localhost:7777/api/class/fabricNode.json?query-target-filter=eq(fabricNode.name,"'"$HOSTNAME"'")' 2>/dev/null | python -m json.tool | grep "\"id\"" | sed -e 's/\"//g' -e 's/,//g' | awk '{print $2}'`
-tacDir="TacOutput`date "+%Y-%m-%dT%H-%M-%S"`"
-mkdir /tmp/$tacDir
-cd /tmp/$tacDir
+mkdir -p /tmp/$tacDir
+mkdir /data/techsupport/$tacDir
+cd /data/techsupport/$tacDir
 
 ###Get Inputs
-cat << 'EOF' > /tmp/objects.txt
+cat << 'EOF' > /tmp/$tacDir/objects.txt
 1. faultInst *collected unfiltered
 2. faultRecord
 3. eventRecord
@@ -157,7 +160,7 @@ cat << 'EOF'
 Select corresponding numbers of objects to collect. Separate numbers with commas. *Note, topSystem, fabricNode, and firmwareARunning are automatically included.
 Ex: 1,2,3,4,5
 EOF
-cat /tmp/objects.txt
+cat /tmp/$tacDir/objects.txt
 read -p "Enter selections: "  'CMD'
 fi
 
@@ -177,32 +180,32 @@ if [[ $gEDATE == "" ]] || [[ $gEDATE == "default" ]]; then
     gEDATE=`date "+%Y-%m-%dT%H:%M:%S"`
 fi
 
-echo "$gSDATE" | sed 's/ //g' > /tmp/date.txt
+echo "$gSDATE" | sed 's/ //g' > /tmp/$tacDir/date.txt
 
 ###VALIDATE Date Inputs
-if ! egrep -ql "^[0-9]{4}\-[0-9]{2}\-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$" /tmp/date.txt; then
+if ! egrep -ql "^[0-9]{4}\-[0-9]{2}\-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$" /tmp/$tacDir/date.txt; then
             echo "Starting date $gSDATE not a valid format. Exiting..."
             exit 1
 fi
 
-rm -f /tmp/date.txt
-echo "$gEDATE" | sed 's/ //g' > /tmp/date.txt
+rm -f /tmp/$tacDir/date.txt
+echo "$gEDATE" | sed 's/ //g' > /tmp/$tacDir/date.txt
 
-if ! egrep -ql "^[0-9]{4}\-[0-9]{2}\-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$" /tmp/date.txt; then
+if ! egrep -ql "^[0-9]{4}\-[0-9]{2}\-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$" /tmp/$tacDir/date.txt; then
             echo "Ending date $gEDATE not a valid format. Exiting..."
             exit 1
 fi
-rm -f /tmp/date.txt
+rm -f /tmp/$tacDir/date.txt
 
 ###Build list of mo's to get records on
-echo $CMD | sed 's/,/\n/g' > /tmp/args.txt
+echo $CMD | sed 's/,/\n/g' > /tmp/$tacDir/args.txt
 
 ###Read Mo's to get records for and then get records.
 while IFS='' read -r line || [[ -n "$line" ]]; do
-    if ! egrep -ql "^$line\." /tmp/objects.txt; then
+    if ! egrep -ql "^$line\." /tmp/$tacDir/objects.txt; then
             log "Selection $line was not valid"
         else
-            record=`egrep "^$line\." /tmp/objects.txt | awk -F " " '{print $2}'`
+            record=`egrep "^$line\." /tmp/$tacDir/objects.txt | awk -F " " '{print $2}'`
                 if [ "$record" == 'faultInst' ] || [ "$record" == 'healthInst' ] || [ "$record" == 'aaaModLR' ] || [ "$record" == 'eqptFlash' ]; then
                     if [[ $record == "healthInst" ]]; then
                             sortAtt=updTs
@@ -229,9 +232,9 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
                     getTacRecord
                 fi
     fi        
-done < '/tmp/args.txt'
+done < '/tmp/'$tacDir'/args.txt'
 
-rm -f /tmp/objects.txt
+rm -f /tmp/$tacDir/objects.txt
 
 ###Collect additional MO's that can't be sorted by created attribute
 log "Collecting fabricNode objects..."
@@ -251,8 +254,8 @@ safe_gEDATE=$(echo "$gEDATE" | sed 's/:/-/g')
 
 # Tar gzip files for download
 log "TacOutput collection completed."
-log "Verify files and file sizes at /tmp/$tacDir"
-cd /tmp
+log "Verify files and file sizes at /data/techsupport/$tacDir"
+cd /data/techsupport
 log "Compressing files..."
 tar --force-local -zcf $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE".tgz $tacDir
 log "Compression completed"
