@@ -76,6 +76,7 @@ CMD=""
                 mkdir -p /bootflash/admin;
                 export HOME=/bootflash/admin;
                 R_CMD='
+                mod_num=$lc;
                 if [[ $clear_cnt == yes ]] ; then
                     clear_cnt=yes;
                 fi;
@@ -120,9 +121,9 @@ EOF
                 fi;
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 36 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/tmp/logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/tmp/logs/bv.log;
                         /lc/isan/bin/vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/tmp/logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/tmp/logs/bv.log;
                         /lc/isan/bin/vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -244,6 +245,7 @@ EOF
                 i=0;
                 p=1;
                 d=2;
+                mod_num=1;
 EOF
             CMD+="$CMD1"
             read -r -d '' CMD2 <<'EOF'
@@ -258,9 +260,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 64 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -305,6 +307,7 @@ EOF
                 i=0;
                 p=1;
                 d=2;
+                mod_num=1;
 EOF
             CMD+="$CMD1"
             read -r -d '' CMD2 <<'EOF'
@@ -319,9 +322,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 32 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -397,6 +400,7 @@ EOF
                 i=0;
                 p=1;
                 d=2;
+                mod_num=1;
 EOF
             CMD+="$CMD1"
             read -r -d '' CMD2 <<'EOF'
@@ -411,9 +415,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 10 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -454,6 +458,7 @@ EOF
                 i=0;
                 p=1;
                 d=2;
+                mod_num=1;
 EOF
             CMD+="$CMD1"
             read -r -d '' CMD2 <<'EOF'
@@ -468,9 +473,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 54 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -519,6 +524,7 @@ EOF
                 i=0;
                 p=1;
                 d=2;
+                mod_num=1;
 EOF
             CMD+="$CMD1"
             read -r -d '' CMD2 <<'EOF'
@@ -533,9 +539,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 108 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -584,6 +590,7 @@ EOF
                 i=0;
                 p=1;
                 d=2;
+                mod_num=1;
 EOF
             CMD+="$CMD1"
             read -r -d '' CMD2 <<'EOF'
@@ -598,9 +605,9 @@ EOF
 
                 if [[ $clear_bv == yes ]] || [[ $dump_cnt == yes ]]; then
                     while [ $n -le 108 ]; do
-                        echo "BV_PORT_${bv[$i]}_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_HOST_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 0 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
-                        echo "BV_PORT_${bv[$i]}_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
+                        echo "eth-${mod_num}/${bv[$i]}_BV_LINE_SIDE" >> /var/sysmgr/tmp_logs/bv.log;
                         vsh_lc -c "debug platform internal usd bearvalley op $op phy-id ${bv[$p]} side 1 lane 0 dev-id ${bv[$d]} reg-val 0xffffffff data 0";
                         n=$((n+1));
                         i=$((i+3));
@@ -732,12 +739,12 @@ function display_counters() {
             cat "$DIR"/summary_sorted.txt
         else
             rm -f "$DIR"/summary.txt
-            regex_search='BV\_PORT.*|CRC\sErr\s\(Stomped\).*|RX\_CRCERR.*|RX\_FCS\_ERR.*|Frames\sReceived\swith\sFCS\sErr.*|TX\_FRM\_ERROR.*|eth\-\S*|Int[0-9]+\S*|Frames\sTransmitted\swith\sErr.*|MAC\sStats.*Channel\s+\S+'
+            regex_search='CRC\sErr\s\(Stomped\).*|RX\_CRCERR.*|RX\_FCS\_ERR.*|Frames\sReceived\swith\sFCS\sErr.*|TX\_FRM\_ERROR.*|eth\-\S*|Int[0-9]+\S*|Frames\sTransmitted\swith\sErr.*|MAC\sStats.*Channel\s+\S+'
 
             printf "%-20s %-40s %-13s %-13s %s\n" "NodeID" "Interface" "RX_FCS_Error" "RX_CRC_Stomp" "TX_Frame_Error" >> "$DIR"/summary.txt
 
             #Handle eth-x/y ports
-            egrep -o "$regex_search" "$DIR"/node* | sed -e "s@$DIR/@@g"  | egrep -A 3 "eth\-\S*" | sed -re 's/^.*ERR\S*\s*//g' | tr '\r\n' ' ' | sed -e 's/node/\nnode/g' | sed -e 's/\.txt:/ /g' | awk '{ printf "%-20s %-40s %-13s %-13s %s\n", $1,$2,$3,$4,$5}' >> "$DIR"/summary.txt
+            egrep -o "$regex_search" "$DIR"/node* | sed -e "s@$DIR/@@g"  | egrep -A 3 "eth\-[0-9/]+$" | sed -re 's/^.*ERR\S*\s*//g' | tr '\r\n' ' ' | sed -e 's/node/\nnode/g' | sed -e 's/\.txt:/ /g' | awk '{ printf "%-20s %-40s %-13s %-13s %s\n", $1,$2,$3,$4,$5}' >> "$DIR"/summary.txt
 
             #Handle Int[0-9]+ ports
             egrep -o "$regex_search" "$DIR"/node* | sed -e "s@$DIR/@@g" | egrep -A 3 "Int[0-9]+.*" | sed -re 's/^.*ERR\S*\s*//g' | tr '\r\n' ' ' | sed -e 's/node/\nnode/g' | sed -e 's/\.txt:/ /g' | awk '{ printf "%-20s %-40s %-13s %-13s %s\n", $1,$2,$3,$4,$5}' >> "$DIR"/summary.txt
