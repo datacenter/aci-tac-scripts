@@ -41,3 +41,7 @@ This script query the new managed object (mo) created by postUpgradeCb function 
 ## [SMU Pre-upgrade Validation](https://github.com/datacenter/aci-tac-scripts/tree/main/SMU%20Pre-upgrade%20Validation)
 
 A validation script to be run on APIC before SMU upgrades to check for known issues that could hinder the success of the SMU upgrade.
+
+## [ACI Model Docs MCP](https://github.com/datacenter/aci-tac-scripts/tree/main/ACI%20Model%20Docs%20mcp)
+
+An MCP (Model Context Protocol) server that exposes Cisco ACI object model documentation directly from a live APIC. It enables AI assistants (such as GitHub Copilot) to look up class metadata, list managed object classes by package, and search by keyword — all sourced in real time from your APIC. Useful for accelerating script development, policy troubleshooting, and ACI model exploration without leaving your editor.
