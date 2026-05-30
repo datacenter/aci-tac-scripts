@@ -1,0 +1,14 @@
+[project]
+name = "aci-model-docs"
+version = "0.1.0"
+description = "MCP server for ACI APIC object model documentation lookup"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.0",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

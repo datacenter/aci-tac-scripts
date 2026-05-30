@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "aci-model-docs": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "aci_model_docs/server.py"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
