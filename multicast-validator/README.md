@@ -130,3 +130,35 @@ EDT 2023-07-07T09:34:48.196||INFO||FINISHED!
 # Additional Information
 - Examples of how the ftriage tool works (and ELAM) can be found here - https://www.cisco.com/c/en/us/support/docs/cloud-systems-management/application-policy-infrastructure-controller-apic/217995-troubleshoot-aci-intra-fabric-forwarding.html
 - This tool was built using pyInstaller. The source python code that it was built from is in the pythonSource folder
+
+# Fix: paramiko "Incompatible ssh peer (no acceptable host key)" on ACI 6.x
+On ACI 6.x, the leaf/spine `sshd` only offers `rsa-sha2-256` / `rsa-sha2-512`
+host-key algorithms. The paramiko version frozen into the older `mcast_validator`
+binary predates rsa-sha2 host-key verification (paramiko added it in 2.9.0), so
+when the tool SSHes to the switches for the switch-level checks it fails with:
+
+```
+Incompatible ssh peer (no acceptable host key)
+```
+
+**Fix:** paramiko **2.12.0** (the last 2.x release, includes rsa-sha2 support and
+is pure Python) is vendored under `pythonSource/vendor/` and prepended to
+`sys.path` in `__main__.py` and `utils.py` before `import paramiko`. Because
+paramiko is pure Python, it reuses the APIC's existing `cryptography` / `bcrypt` /
+`pynacl` libraries. The shipped `mcast_validator` binary has been rebuilt from this
+patched source.
+
+# Building / Rebuilding the binary
+The binary is produced with PyInstaller (onefile) targeting x86-64 Linux with an
+old glibc floor so it runs across APIC versions. Because PyInstaller cannot
+cross-compile, the build runs inside a `manylinux2014_x86_64` container (CentOS 7,
+python3.6.8 with a shared libpython, PyInstaller 4.10):
+
+```bash
+cd pythonSource
+podman run --rm --platform linux/amd64 -v "$PWD":/src -w /src \
+  quay.io/pypa/manylinux2014_x86_64 bash build_elf.sh
+# output: pythonSource/dist/mcast_validator
+```
+
+`docker` works in place of `podman`. See `build_elf.sh` for the exact steps.

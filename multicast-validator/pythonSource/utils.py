@@ -5,6 +5,19 @@ version = f'''{sys.version_info[0]}.{sys.version_info[1]}'''
 dirs = [f'/opt/cisco/system-venv3/lib64/python{version}/site-packages', f'/opt/cisco/system-venv3/lib/python{version}/site-packages']
 sys.path = sys.path + dirs
 import os, re, json
+
+# --- Vendored-package override (fixes paramiko "Incompatible ssh peer (no acceptable host key)") ---
+# On ACI 6.x the leaf/spine sshd only offers rsa-sha2 host-key algorithms, which an old
+# (frozen/bundled) paramiko cannot verify -> "no acceptable host key". Drop a newer,
+# pure-Python paramiko (>=2.9) into a "vendor/" dir (or a "paramiko/" package dir) next to
+# this script and it will take precedence over the frozen/system copy. paramiko is pure
+# Python, so it reuses the APIC's existing cryptography / bcrypt / pynacl libraries.
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+for _vendor in (os.path.join(_script_dir, "vendor"), _script_dir):
+    if os.path.isdir(_vendor) and _vendor not in sys.path:
+        sys.path.insert(0, _vendor)
+# --- end vendored-package override ---
+
 import socket, paramiko
 import concurrent.futures
 import logging
@@ -17,12 +30,10 @@ import shlex
 #full = sys.path
 #sys.path = [i for i in full if not regex.match(i)]
 
-#Also not needed, but if a newer version of a package that already exists in apic libraries exists,
-#this code can be used to prepend the desired package dir to sys.path so it gets preference
-#cwd = os.getcwd() + '/'
-#newPath = []
-#newPath.append(cwd + "paramiko-3.1.0")
-#sys.path = newPath + sys.path
+#A newer version of paramiko (or any package already present in the apic libraries) can be
+#vendored to take preference -- see the "Vendored-package override" block near the top of
+#this file, which prepends a local "vendor/" (or this script's) dir to sys.path so a bundled
+#paramiko/ wins over the frozen/system copy.
 
 def setup_logger(logger, level):
     logging_level = {

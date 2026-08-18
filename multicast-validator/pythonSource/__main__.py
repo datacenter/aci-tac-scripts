@@ -4,6 +4,18 @@ import sys
 version = f'''{sys.version_info[0]}.{sys.version_info[1]}'''
 dirs = [f'/opt/cisco/system-venv3/lib64/python{version}/site-packages', f'/opt/cisco/system-venv3/lib/python{version}/site-packages']
 sys.path = sys.path + dirs
+
+# --- Vendored-package override (fixes paramiko "Incompatible ssh peer (no acceptable host key)") ---
+# See utils.py for the full explanation. Prepends a local "vendor/" (or this script's) dir so a
+# bundled newer paramiko (>=2.9, needed for ACI 6.x rsa-sha2 host keys) takes precedence over the
+# frozen/system copy before mcast/utils import it.
+import os
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+for _vendor in (os.path.join(_script_dir, "vendor"), _script_dir):
+    if os.path.isdir(_vendor) and _vendor not in sys.path:
+        sys.path.insert(0, _vendor)
+# --- end vendored-package override ---
+
 from mcast import ext_src_int_rcvr, int_src_ext_rcvr, int_src_int_rcvr, ext_src_ext_rcvr
 from utils import setup_logger
 import os
