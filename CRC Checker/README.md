@@ -9,29 +9,29 @@ This tool is natively included in version 6.1(4) and later. To execute simply ru
 # Quick Usage
 ###### Method 1
 1. SSH to the APIC
-2. ```cd /tmp```
+2. ```cd /data/techsupport```
 3. ```vim crc_checker.sh```
 4. Copy the entire script to your clipboard
 5. Paste it into the crc_checker file
 6. Type ```ESC``` and then ```:wq!```
-7. Set permissions with ```chmod 777 /tmp/crc_checker.sh```
-8. Execute: ```/tmp/crc_checker.sh ARGS```
+7. Set permissions with ```chmod 777 /data/techsupport/crc_checker.sh```
+8. Execute: ```/data/techsupport/crc_checker.sh ARGS```
 
 ###### Method 2
-Have the customer scp/sftp the script into ```/tmp``` on the apic.
+Have the customer scp/sftp the script into ```/data/techsupport``` on the apic.
 
 Then set permissions and execute:
-```chmod 777 /tmp/crc_checker.sh```
-```/tmp/crc_checker.sh ARGS```
+```chmod 777 /data/techsupport/crc_checker.sh```
+```/data/techsupport/crc_checker.sh ARGS```
 
 ###### Examples
-```/tmp/crc_checker.sh -n all -d``` <--collect platform counters for all gen2+ nodes
+```/data/techsupport/crc_checker.sh -n all -d``` <--collect platform counters for all gen2+ nodes
 
-```/tmp/crc_checker.sh -n all -x -c``` <--clear platform and (including BearValley counters) for all gen2+ nodes
+```/data/techsupport/crc_checker.sh -n all -x -c``` <--clear platform and (including BearValley counters) for all gen2+ nodes
 
-```/tmp/crc_checker.sh -n 1001,1002 -c``` <--clear platform counters for nodes 1001 and 1002
+```/data/techsupport/crc_checker.sh -n 1001,1002 -c``` <--clear platform counters for nodes 1001 and 1002
 
-```/tmp/crc_checker.sh -s``` <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on last counters in /data/techsupport/int_counters
+```/data/techsupport/crc_checker.sh -s``` <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on last counters in /data/techsupport/int_counters
  
 All outputs are logged to /data/techsupport/int_counters
 
@@ -65,10 +65,10 @@ x:    Clear BearValley counters. Can't be used in conjunction -d.
 s:    Once the script has been run, -s formats data into a list sorted by FCS, Stomp, and TX Err.
  
 Example Usage:
-      /tmp/crc_checker.sh -n all -d <--collect platform counters for all gen2+ nodes
-      /tmp/crc_checker.sh -n all -x -c <--clear platform and BearValley counters for all gen2+ nodes
-      /tmp/crc_checker.sh -n 1001,1002 -c <--clear platform counters for nodes 1001 and 1002
-      /tmp/crc_checker.sh -s <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on
+      /data/techsupport/crc_checker.sh -n all -d <--collect platform counters for all gen2+ nodes
+      /data/techsupport/crc_checker.sh -n all -x -c <--clear platform and BearValley counters for all gen2+ nodes
+      /data/techsupport/crc_checker.sh -n 1001,1002 -c <--clear platform counters for nodes 1001 and 1002
+      /data/techsupport/crc_checker.sh -s <--created sorted list of FCS, CRC/Stomps, and TX Frame Errors based on
                              last counters in /data/techsupport/int_counters
  
 All outputs are logged to /data/techsupport/int_counters
@@ -141,13 +141,13 @@ Enter admin Password:
  
 2021-05-14T14:40:01 Completed!
 2021-05-14T14:40:01 Raw command outputs are at /data/techsupport/int_counters
-2021-05-14T14:40:01 To view sorted/formatted data run /tmp/crc_checker.sh -s
+2021-05-14T14:40:01 To view sorted/formatted data run /data/techsupport/crc_checker.sh -s
 2021-05-14T14:40:01 Once the -s option has been used, the sorted output can be viewed at /data/techsupport/int_counters/summary_sorted.txt
  ```
 
 ###### outputs:
 ```
-admin@a-apic1:tmp> /tmp/crc_checker.sh -s | head -50
+admin@a-apic1:tmp> /data/techsupport/crc_checker.sh -s | head -50
 NodeID               Interface                                RX_FCS_Error  RX_CRC_Stomp  TX_Frame_Error
 node-103             eth-1/49                                 4496877       0             0
 node-1002            eth-1/25                                 0             4496877       0
@@ -173,7 +173,7 @@ For the above we can see the following happens:
  
 # Identify Errors seen on Modular Spines
 ```
-admin@a-apic1:tmp> /tmp/crc_checker.sh -s | head -50
+admin@a-apic1:tmp> /data/techsupport/crc_checker.sh -s | head -50
 NodeID               Interface                                RX_FCS_Error  RX_CRC_Stomp  TX_Frame_Error
 node-103             eth-1/49                                 12060635      0             0
 node-1001-mod-24     Int11                                    0             16089730      0
