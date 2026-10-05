@@ -9,8 +9,6 @@ hiddenimports += collect_submodules('nacl')
 hiddenimports += collect_submodules('bcrypt')
 tmp_ret = collect_all('paramiko')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('cryptography')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 block_cipher = None
@@ -44,7 +42,7 @@ exe = EXE(pyz,
           strip=False,
           upx=True,
           upx_exclude=[],
-          runtime_tmpdir=None,
+          runtime_tmpdir='/data/techsupport',
           console=True,
           disable_windowed_traceback=False,
           target_arch=None,

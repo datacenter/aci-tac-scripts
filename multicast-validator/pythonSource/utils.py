@@ -57,6 +57,45 @@ def setup_logger(logger, level):
 logger = logging.getLogger(__name__)
 setup_logger(logger, "debug")
 
+def _query_apic_json(url, description):
+    result = subprocess.run(
+        ['icurl', url],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
+    output = result.stdout.strip()
+    error = result.stderr.strip()
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            '{} failed with exit code {}: {}'.format(
+                description, result.returncode, error or 'no error text returned'
+            )
+        )
+    if not output:
+        raise RuntimeError(
+            '{} returned an empty response{}'.format(
+                description, ': ' + error if error else ''
+            )
+        )
+
+    try:
+        response = json.loads(output)
+    except ValueError as exc:
+        raise RuntimeError(
+            '{} returned non-JSON output: {!r}'.format(description, output[:200])
+        ) from exc
+
+    if not isinstance(response, dict) or 'imdata' not in response:
+        raise RuntimeError('{} returned an unexpected APIC response'.format(description))
+    if response.get('imdata') and 'error' in response['imdata'][0]:
+        attributes = response['imdata'][0]['error'].get('attributes', {})
+        raise RuntimeError(
+            '{} failed: {}'.format(description, attributes.get('text', attributes))
+        )
+    return response
+
 def handle_api_rsp(rsp):
     if rsp['totalCount'] == '0':
         error_string = 'Object was not found'
@@ -184,26 +223,51 @@ def get_attribute(attribute, obj_class=None, obj_dn=None, obj_query=None):
         logger.warning("Query returned more than one object. get_attribute requires the query to only return one object.")
 
 def get_fab_details():
-    #self ip used for ssh socket
-    myTopSys = json.loads(os.popen('''icurl 'http://localhost:7777/api/class/topSystem.json?query-target-filter=eq(topSystem.name,"'"$HOSTNAME"'")' 2>/dev/null''').read())
-    self_ip   = myTopSys['imdata'][0]['topSystem']['attributes']['address']
-    self_node = myTopSys['imdata'][0]['topSystem']['attributes']['id']
-    
+    # Query once without shell interpolation. APIC shell hostnames can differ
+    # from topSystem.name, particularly in root shells (for example, 1-apic1).
+    rsp = _query_apic_json(
+        'http://localhost:7777/api/class/topSystem.json',
+        'topSystem fabric discovery',
+    )
+    if not rsp['imdata']:
+        raise RuntimeError('topSystem fabric discovery returned no nodes')
+
+    hostname = os.environ.get('HOSTNAME') or socket.gethostname()
+    hostname = hostname.strip().lower()
+    node_id_match = re.match(r'^(\d+)-apic', hostname)
+    hostname_node_id = node_id_match.group(1) if node_id_match else None
+
     ver_dic = {}
-    rsp = query_class('topSystem')
+    self_attributes = None
     for node in rsp['imdata']:
-        n = node['topSystem']['attributes']['dn']
+        attributes = node['topSystem']['attributes']
+        n = attributes['dn']
         n = ''.join(re.findall(r"^.*pod\-[0-9]\/node\-[0-9]+", n))
         n = ''.join(re.findall(r"[0-9]+$", n))
         try:
-            v = node['topSystem']['attributes']['version']
+            v = attributes['version']
             ver_dic[n] = v
         except:
             ver_dic[n] = ''
-        
-        myTopSys = json.loads(os.popen('''icurl 'http://localhost:7777/api/class/topSystem.json?query-target-filter=eq(topSystem.name,"'"$HOSTNAME"'")' 2>/dev/null''').read())
-        myAddr   = myTopSys['imdata'][0]['topSystem']['attributes']['address']
-    
+
+        node_name = attributes.get('name', '').strip().lower()
+        node_id = attributes.get('id', n)
+        if node_name == hostname or (hostname_node_id and node_id == hostname_node_id):
+            self_attributes = attributes
+
+    if self_attributes is None:
+        node_names = sorted(
+            node['topSystem']['attributes'].get('name', '<unnamed>')
+            for node in rsp['imdata']
+        )
+        raise RuntimeError(
+            "Could not match local hostname {!r} to topSystem nodes: {}".format(
+                hostname, ', '.join(node_names)
+            )
+        )
+
+    self_ip = self_attributes['address']
+    self_node = self_attributes['id']
     return ver_dic, self_ip, self_node
 
 def get_password():

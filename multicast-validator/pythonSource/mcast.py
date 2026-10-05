@@ -936,7 +936,7 @@ def check_hal_ep(node_list, stripe_winner_node, extif_dic={}):
     for n in node_list:
         node_ip_list.append(param_dic['nd'][n])
     
-    command_list  = [f'''vsh_lc -c "show platform internal hal l3 routes vrf {param_dic['tenant']}:{param_dic['vrf']}" | egrep "{param_dic['src']}/\s+32"''']
+    command_list  = [f'''vsh_lc -c "show platform internal hal l3 routes vrf {param_dic['tenant']}:{param_dic['vrf']}" | egrep "{param_dic['src']}/\\s+32"''']
     #Get hal entry
     cmd_outputs = ssh_conn(self_ip, param_dic['uname'], password, node_ip_list, command_list)
     for k1, v1 in cmd_outputs.items():
@@ -971,7 +971,7 @@ def check_hal_group(node_list, stripe_winner_node, extif_dic={}):
     for n in node_list:
         node_ip_list.append(param_dic['nd'][n])
     
-    command_list  = [f'''vsh_lc -c "show platform internal hal l3 routes vrf {param_dic['tenant']}:{param_dic['vrf']}" | egrep "{param_dic['group']}/\s+32"''']
+    command_list  = [f'''vsh_lc -c "show platform internal hal l3 routes vrf {param_dic['tenant']}:{param_dic['vrf']}" | egrep "{param_dic['group']}/\\s+32"''']
     #Get hal entry
     cmd_outputs = ssh_conn(self_ip, param_dic['uname'], password, node_ip_list, command_list)
     for k1, v1 in cmd_outputs.items():

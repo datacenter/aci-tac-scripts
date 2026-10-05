@@ -38,9 +38,13 @@ echo "== Create build venv =="
 # shellcheck disable=SC1091
 source /tmp/bvenv/bin/activate
 
-echo "== Install PyInstaller 4.10 + paramiko 2.12.0 (py3.6-compatible) =="
+echo "== Install PyInstaller 4.10 + py3.6-compatible dependencies =="
 python -m pip install --upgrade "pip<22" "setuptools<60" wheel >/tmp/pip1.log 2>&1
-python -m pip install "pyinstaller==4.10" "paramiko==2.12.0" >/tmp/pip2.log 2>&1 || { echo "PIP_FAIL"; tail -40 /tmp/pip2.log; exit 4; }
+python -m pip install \
+  "pyinstaller==4.10" \
+  "paramiko==2.12.0" \
+  "cryptography==36.0.2" \
+  >/tmp/pip2.log 2>&1 || { echo "PIP_FAIL"; tail -40 /tmp/pip2.log; exit 4; }
 echo "-- resolved versions --"
 python -m pip freeze 2>/dev/null | grep -iE "^(pyinstaller|paramiko|cryptography|bcrypt|pynacl|cffi|six)==" || true
 
@@ -49,9 +53,9 @@ rm -rf build dist mcast_validator.spec __pycache__
 
 echo "== PyInstaller onefile build =="
 pyinstaller --onefile --clean --noconfirm --name mcast_validator \
+  --runtime-tmpdir /data/techsupport \
   --paths . \
   --collect-all paramiko \
-  --collect-all cryptography \
   --collect-submodules nacl \
   --collect-submodules bcrypt \
   --hidden-import mcast \

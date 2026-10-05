@@ -5,7 +5,14 @@ This tool is intended to verify and assist in troubleshooting routed multicast (
 # Usage
 1. Download the mcast_validator file and scp/ftp/sftp/etc it onto the apic in /data/techsupport or the user home directory.
 2. cd to the location of the file.
-3. Execute - ```./mcast_validator``` <-- If on an m4/l4 apic, run ```TMPDIR=/data/techsupport ./mcast_validator```
+3. Execute - ```python3 ./mcast_validator``` (or ```chmod +x mcast_validator && ./mcast_validator```).
+
+`mcast_validator` is a Python 3 zipapp that runs with the APIC's built-in
+interpreter (`/opt/cisco/system-venv3/bin/python3`). It bundles paramiko 2.12.0
+(required for rsa-sha2 host keys on ACI 6.x) and uses the APIC's own
+`cryptography`/`bcrypt`/`nacl`. Nothing is extracted to disk, so the `/tmp`
+restriction on APIC 6.1(4) and later does not apply. Verify the upload with
+`sha256sum mcast_validator`.
 
 The tool will prompt for user inputs or inputs can be supplied at the command line. Refer to the help documentation for argument examples.
 
@@ -26,6 +33,11 @@ It does not support the following topologies:
 - Additionally, while it validates many things both at the APIC and switch level, it does not validate route-maps do to the complexity this would entail.
 
 The tool relies on many different API calls (GETs only) and show outputs, both at the switch and APIC level. Its possible some api calls will fail if switches are on a much older version than the apic.
+
+# Building
+From `pythonSource/`, run `./build_pyz.sh` to produce `dist/mcast_validator`.
+`build_elf.sh` (PyInstaller onefile) is kept for legacy APICs without
+`/opt/cisco/system-venv3`.
 
 # Help Documentation
 ```
