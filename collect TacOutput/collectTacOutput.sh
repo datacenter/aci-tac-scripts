@@ -255,14 +255,14 @@ log "TacOutput collection completed."
 log "Verify files and file sizes at /data/techsupport/$tacDir"
 cd /data/techsupport
 log "Compressing files..."
-tar --force-local -zcf $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE".tgz $tacDir
+tar --force-local -zcf $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE"-$HOSTNAME.tgz $tacDir
 log "Compression completed"
-chmod 777 $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE".tgz
-log2 "Logs available for SCP or SFTP download from $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
+chmod 777 $destDir/TacOutput-"$safe_gSDATE"-to-"$safe_gEDATE"-$HOSTNAME.tgz
+log2 "Logs available for SCP or SFTP download from $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE-$HOSTNAME.tgz"
 if [[ $destDir == "/data/techsupport" ]]; then
-    log2 "To download through your web browser go to https://<apic address>/files/$apicID/techsupport/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
+    log2 "To download through your web browser go to https://<apic address>/files/$apicID/techsupport/TacOutput-$safe_gSDATE-to-$safe_gEDATE-$HOSTNAME.tgz"
 fi
 rm -rf /tmp/$tacDir
 log2 ""
 log2 "To remove files when done run"
-log2 "rm -f $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE.tgz"
+log2 "rm -f $destDir/TacOutput-$safe_gSDATE-to-$safe_gEDATE-$HOSTNAME.tgz"
